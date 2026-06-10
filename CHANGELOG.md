@@ -4,6 +4,27 @@ All notable changes to CERT-FLOW are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-06-10
+
+Packaging and serialization fixes for the freshly published library.
+
+### Fixed
+- `pytest` now discovers the `src/`-layout package on a fresh checkout: the
+  `[tool.pytest.ini_options]` `pythonpath` was `["."]` (repo root, no package
+  there), so `python -m pytest` failed with `ModuleNotFoundError: certflow`
+  unless `PYTHONPATH=src` was set or the package was installed. Set to
+  `["src"]`.
+- `EpisodeResult.oracle_cost` is now serialized by `save_results` and restored
+  by `load_results`. It was dropped on save, so reloaded Tier-2 results came
+  back with `oracle_cost = nan` and any regret analysis silently reported NaN.
+  Legacy result files without the field still load (oracle_cost stays nan).
+
+### Added
+- `realworld` optional extra (`pip install 'certflow[realworld]'`) declaring
+  the `pandas` and `tables` dependencies the METR-LA / PEMS-BAY traffic
+  adapter needs. The core install stays numpy/scipy only; `_load_traffic` now
+  raises a clear `ImportError` pointing at the extra when pandas is absent.
+
 ## [1.0.1] - 2026-06-10
 
 First PyPI release (`pip install certflow`).
@@ -50,5 +71,6 @@ Planning under Drifting Costs (Extended Version)*.
   sum-aware certificate, impossibility of a tighter lower bound,
   decision-uniform validity, churn floor).
 
+[1.0.2]: https://github.com/Archerkattri/CERT-FLOW/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Archerkattri/CERT-FLOW/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Archerkattri/CERT-FLOW/releases/tag/v1.0.0

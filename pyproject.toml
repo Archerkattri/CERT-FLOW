@@ -1,6 +1,6 @@
 [project]
 name = "certflow"
-version = "1.0.1"
+version = "1.0.2"
 authors = [{name = "Krishi Attri", email = "krishiattriwork@gmail.com"}]
 license = {text = "MIT"}
 description = "Certified route planning under drifting costs: conformal LB<=OPT<=UB certificates, certificate-directed sensing, proof-gated preprocessing"
@@ -41,6 +41,7 @@ Issues = "https://github.com/Archerkattri/CERT-FLOW/issues"
 [project.optional-dependencies]
 fast = ["numba"]
 dev = ["pytest>=7.0"]
+realworld = ["pandas>=1.5", "tables>=3.7"]
 
 [build-system]
 requires = ["hatchling"]
@@ -61,5 +62,5 @@ include = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["src"]
 testpaths = ["tests"]

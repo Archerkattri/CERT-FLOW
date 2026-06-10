@@ -426,6 +426,7 @@ def _episode_result_to_dict(ep: EpisodeResult) -> dict[str, Any]:
         "travel_cost": _float_to_json(ep.travel_cost),
         "sense_cost": _float_to_json(ep.sense_cost),
         "reached_goal": ep.reached_goal,
+        "oracle_cost": _float_to_json(ep.oracle_cost),
     }
 
 
@@ -435,6 +436,8 @@ def _episode_result_from_dict(d: dict[str, Any]) -> EpisodeResult:
         travel_cost=float(_float_from_json(d["travel_cost"])),
         sense_cost=float(_float_from_json(d["sense_cost"])),
         reached_goal=bool(d["reached_goal"]),
+        # tolerate legacy files written before oracle_cost was serialised
+        oracle_cost=float(_float_from_json(d.get("oracle_cost", _NAN_SENTINEL))),
     )
 
 

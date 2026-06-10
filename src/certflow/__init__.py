@@ -26,7 +26,7 @@ from certflow.cert import CertPlanner, PlannerConfig
 from certflow.conformal import ACITracker, ConformalScorer
 from certflow.types import Certificate, EdgeBelief, World
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 __all__ = [
     "ACITracker",

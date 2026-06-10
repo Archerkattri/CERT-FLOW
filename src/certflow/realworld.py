@@ -28,7 +28,14 @@ DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 @lru_cache(maxsize=2)
 def _load_traffic(dataset: str) -> tuple[list[str], np.ndarray, dict[tuple[str, str], float]]:
     """(sensor_ids, speeds[bins x sensors] mph with missing filled, distances m)."""
-    import pandas as pd
+    try:
+        import pandas as pd
+    except ImportError as exc:  # pragma: no cover - exercised via a stubbed import
+        raise ImportError(
+            "The real-world traffic adapter (METR-LA / PEMS-BAY) needs pandas and "
+            "PyTables, which are not part of the core install. Install them with:\n"
+            "    pip install 'certflow[realworld]'"
+        ) from exc
 
     if dataset == "metr-la":
         h5, dist_csv = DATA_DIR / "metr-la/metr_la.h5", DATA_DIR / "metr-la/distances_la_2012.csv"

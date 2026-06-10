@@ -368,6 +368,35 @@ class TestSaveLoad:
             path = save_results(result, tmp)
             assert path.name == f"{config.config_id()}.json"
 
+    def test_oracle_cost_round_trips(self):
+        """Tier-2 regret depends on oracle_cost surviving save/load (not nan)."""
+        config = ExperimentConfig(n_seeds=1, base_seed=0)
+        ep = EpisodeResult(
+            rounds=[],
+            travel_cost=12.5,
+            sense_cost=1.0,
+            reached_goal=True,
+            oracle_cost=9.75,
+        )
+        result = ExperimentResult(config=config, episodes=[ep], seeds=[7])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = save_results(result, tmp)
+            loaded = load_results(path)
+
+        loaded_oracle = loaded.episodes[0].oracle_cost
+        assert not math.isnan(loaded_oracle)
+        assert math.isclose(loaded_oracle, 9.75)
+
+    def test_oracle_cost_nan_round_trips(self):
+        """Tier-1 episodes leave oracle_cost as nan; that must survive too."""
+        config = ExperimentConfig(n_seeds=1, base_seed=0)
+        ep = EpisodeResult(rounds=[], travel_cost=1.0, sense_cost=0.0, reached_goal=False)
+        result = ExperimentResult(config=config, episodes=[ep], seeds=[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = save_results(result, tmp)
+            loaded = load_results(path)
+        assert math.isnan(loaded.episodes[0].oracle_cost)
+
     def test_sensed_edge_tuple_roundtrip(self):
         round_log = RoundLog(
             t=0.0,
