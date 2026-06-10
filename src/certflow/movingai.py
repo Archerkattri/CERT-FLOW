@@ -31,7 +31,6 @@ from numpy.random import Generator
 from certflow.drift import (
     _COST_CAP,
     _COST_FLOOR,
-    _lognormal_costs,
     _make_rng,
 )
 from certflow.types import Edge, Node

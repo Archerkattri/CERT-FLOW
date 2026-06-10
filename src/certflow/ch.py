@@ -85,7 +85,6 @@ def _witness_search(
     reset exactly those entries in O(touched) instead of O(n). Returns the number
     of touched entries.
     """
-    n = indptr.shape[0] - 1
     # array binary heap of (key, node)
     cap = 1024
     hk = np.empty(cap, dtype=np.float64)
@@ -206,7 +205,6 @@ def _bidir_upward(
     between queries via the touched lists `seenf`/`seenb`, whose lengths are
     returned). Standard array binary heaps, snapshot kernel style.
     """
-    n = up_indptr.shape[0] - 1
     best = np.inf
 
     # two heaps
@@ -380,7 +378,6 @@ def _bidir_upward_meet(
     backward search, so the caller can stitch the two halves and then unpack
     shortcuts. `meet` is the node minimizing ``df+db``; -1 if unreachable.
     """
-    n = up_indptr.shape[0] - 1
     best = np.inf
     meet = -1
 
@@ -570,7 +567,6 @@ def _ch_backward_label(
     (inf-initialised) written in place; `seen` collects touched indices for the
     caller's reset. Returns the touched count.
     """
-    n = up_indptr.shape[0] - 1
     ns = 0
     # phase (a): backward Dijkstra from target over the down-graph gives exact
     # labels for target's own hierarchy (the meeting region). We then (b) sweep.
@@ -685,7 +681,6 @@ def _ch_potential_astar(
     optimal. All scratch (`h`, `g`, `closed`) is caller-allocated and reset via
     touched-lists so the query stays O(search space + sweep), not O(n) of resets.
     """
-    n = indptr.shape[0] - 1
     nh = _ch_backward_label(
         target, up_indptr, up_indices, up_cost,
         dn_indptr, dn_indices, dn_cost, rank_desc, h, seen_h,

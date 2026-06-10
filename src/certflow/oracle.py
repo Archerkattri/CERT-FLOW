@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 from scipy.stats import beta as beta_dist
 
-from certflow.types import Edge, Node, RoundLog
+from certflow.types import Node, RoundLog
 
 # ---------------------------------------------------------------------------
 # Dijkstra (local fallback; used if graphcore is unavailable)

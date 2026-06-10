@@ -1,11 +1,12 @@
 <p align="center"><img src="assets/banner.svg" alt="CERT-FLOW" width="100%"/></p>
 
 <p align="center">
+  <a href="https://pypi.org/project/certflow/"><img alt="PyPI" src="https://img.shields.io/pypi/v/certflow?color=009E73"></a>
   <a href="#reproducing-every-number"><img alt="tests" src="https://img.shields.io/badge/tests-223%20passing-0072B2"></a>
-  <img alt="python" src="https://img.shields.io/badge/python-3.11%2B-56B4E9">
+  <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-56B4E9">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-1a7f37">
   <img alt="coverage claim" src="https://img.shields.io/badge/certificate%20coverage-1.000%20measured-D55E00">
-  <a href="https://doi.org/10.5281/zenodo.20631476"><img alt="DOI" src="https://zenodo.org/badge/1265150144.svg"></a>
+  <a href="https://doi.org/10.5281/zenodo.20631475"><img alt="DOI" src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20631475-1f6feb"></a>
 </p>
 
 A robot replanning through a world whose costs drift faces a question classical
@@ -13,7 +14,7 @@ planners never answer: **how good is my current route, given that most of the
 map is stale?** CERT-FLOW answers it every round, with a proof: a
 high-probability certificate `LB ≤ OPT ≤ UB` on the optimal route cost, built
 from age-weighted non-exchangeable conformal prediction over drift-adjusted
-observation residuals — and it spends paid sensing exactly where the
+observation residuals, and it spends paid sensing exactly where the
 certificate says the gap shrinks fastest.
 
 <p align="center"><img src="assets/overview.png" alt="One CERT round" width="92%"/></p>
@@ -29,7 +30,7 @@ certificate says the gap shrinks fastest.
 
 ## Headline results (all reproducible below)
 
-- **Coverage ≥ claimed confidence on every condition ever run** — 17 synthetic
+- **Coverage ≥ claimed confidence on every condition ever run**: 17 synthetic
   regimes, off-model worlds, and two real cities (METR-LA, PEMS-BAY) at up to
   49% drift-model violation rates.
 - **Route quality**: exactly optimal on known maps (≡ Dijkstra, plus the
@@ -38,28 +39,27 @@ certificate says the gap shrinks fastest.
   equal budget.
 - **Speed**: 3.7 ms p50 / 12 ms p95 per fully-certified round at 60×60 (one
   CPU core). Certificate-gated preprocessing answers static queries in
-  **269–394 ns** (cost) / 8.7 µs (path) — at or below published static-SOTA —
+  **269–394 ns** (cost) / 8.7 µs (path), at or below published static-SOTA,
   and at road scale absorbs cost changes in **0.015–0.34 ms vs ~1 s** for
   CRP-style recustomization, exact under ±20% perturbation.
 - **Theory T1–T7**: coverage (observable + latent), a certifiability
-  *threshold* (gap ε is sustainable iff sensing rate beats drift — both
+  *threshold* (gap ε is sustainable iff sensing rate beats drift, both
   directions), a √L sum-aware upper certificate with a measured
   selection-bias hazard and its gate, an **impossibility theorem** (no uniform
-  lower bound can beat Bonferroni by more than log factors — the certificate's
+  lower bound can beat Bonferroni by more than log factors, so the certificate's
   asymmetry is optimal), decision-uniform validity, and a churn-measured floor.
 - **Honest negatives, kept**: the corridor-memory speed hypothesis failed
   (documented), a predictor's regime claim was downgraded after its test, and
   the maze negative-control shows exactly where route-critical sensing cannot
-  help.
+  help. Every known limitation and its disposition:
+  [docs/results/limitations.md](docs/results/limitations.md).
 
 ## Quickstart
 
 ```bash
-python -m venv cert_env && source cert_env/bin/activate
-pip install -e ".[dev,fast]" pandas h5py tables   # "fast" = numba (needed to reproduce the speed numbers)
-pytest   # full suite: 223 with datasets; data-dependent tests skip cleanly without data/
+pip install "certflow[fast]"   # "fast" = numba (needed to reproduce the speed numbers)
 python - <<'PY'
-from certflow.cert import CertPlanner, PlannerConfig
+from certflow import CertPlanner, PlannerConfig
 from certflow.drift import grid_world
 
 world = grid_world(6, 6, seed=0, kind="bounded", rho=0.02, noise_scale=0.05)
@@ -70,6 +70,15 @@ for _ in range(150):
 print(f"[{cert.lb:.2f}, {cert.ub:.2f}] @ confidence {cert.confidence:.2f}, "
       f"gap {cert.gap:.2f}")
 PY
+```
+
+To develop or reproduce the paper numbers, work from a clone:
+
+```bash
+git clone https://github.com/Archerkattri/CERT-FLOW && cd CERT-FLOW
+python -m venv cert_env && source cert_env/bin/activate
+pip install -e ".[dev,fast]" pandas h5py tables
+pytest   # full suite: 223 with datasets; data-dependent tests skip cleanly without data/
 ```
 
 ## Reproducing every number
@@ -102,18 +111,18 @@ in `data/README.md`; ~230 MB total, links inside).
 ## How it works
 
 1. **Score** every paid observation with a drift-adjusted residual; weight by
-   age (data-independent geometric weights — exchangeability is *not* assumed).
+   age (data-independent geometric weights; exchangeability is *not* assumed).
 2. **Price** each edge as `ĉ ± (λq + ρ·age)`: the conformal quantile pays for
    noise, the drift term pays for staleness.
 3. **Bound** the optimum from both sides with two incremental searches
    (optimistic ℓ, conservative u) over a flat-array engine (numba kernels).
-4. **Claim** `LB ≤ OPT ≤ UB` at an honestly-annealed confidence — weak claims
+4. **Claim** `LB ≤ OPT ≤ UB` at an honestly-annealed confidence: weak claims
    during warm-up instead of silence; the claim visibly decays as the map ages.
 5. **Sense** the edge that shrinks the certified gap fastest (route-critical,
    churn-aware); certification is a *rate*, not a state (T2′).
 6. **When the certificate proves the map tight**, that proof licenses
-   preprocessing — an all-pairs oracle or certified Contraction Hierarchy
-   answering in ns–µs — revoked the instant drift exceeds tolerance.
+   preprocessing: an all-pairs oracle or certified Contraction Hierarchy
+   answering in ns–µs, revoked the instant drift exceeds tolerance.
 
 ## Layout
 
@@ -129,28 +138,32 @@ src/certflow/
   roadnet.py    DIMACS road graphs + exact ALT on landmark lower-bounds
   drift.py / realworld.py / movingai.py   synthetic, traffic-replay, game maps
   episodes.py / harness.py / baselines.py runners, seeds, parametric strawman
-docs/results/   one markdown per experiment — numbers, anomalies, verdicts
+docs/results/   one markdown per experiment: numbers, anomalies, verdicts
 docs/specs/     design spec; docs/theory/ working notes
 ```
 
 ## Citation
 
 Paper: *CERT: Certified Route Planning under Drifting Costs* (preprint
-forthcoming — citation entry will be updated with the arXiv ID).
+forthcoming; the citation entry will be updated once the DOI is live).
 
 ```bibtex
 @software{attri2026certflow,
   author = {Attri, Krishi},
   title  = {{CERT-FLOW}: Certified Route Planning under Drifting Costs},
   year   = {2026},
-  doi    = {10.5281/zenodo.20631476},
+  doi    = {10.5281/zenodo.20631475},
   url    = {https://github.com/Archerkattri/CERT-FLOW}
 }
 ```
 
-Paper preprint (extended version) — DOI pending engrXiv moderation; this
+The DOI above is the concept DOI (always resolves to the latest archived
+version); [CITATION.cff](CITATION.cff) carries the same metadata in
+machine-readable form.
+
+Paper preprint (extended version): DOI pending engrXiv moderation; this
 section will carry it once posted.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

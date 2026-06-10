@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import heapq
 import itertools
-from typing import Callable, Iterable
+from typing import Iterable
 
 import numpy as np
 
@@ -725,7 +725,6 @@ class FastDStarLite:
         g = self._g
         rhs = self._rhs
         start = self._start
-        goal = self._goal
         while True:
             top = self._top()
             # start key
@@ -930,7 +929,7 @@ def run_benchmark(rows: int = 60, cols: int = 60, rounds: int = 100, seed: int =
     import random
     from time import perf_counter
 
-    from certflow.graphcore import DStarLite, dijkstra
+    from certflow.graphcore import DStarLite
 
     rng = random.Random(seed)
     graph = _grid_graph(rows, cols, rng)

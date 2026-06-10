@@ -26,7 +26,7 @@ from typing import Any, Callable
 import numpy as np
 from scipy.stats import beta as beta_dist
 
-from certflow.types import Edge, EpisodeResult, RoundLog
+from certflow.types import EpisodeResult, RoundLog
 
 logger = logging.getLogger(__name__)
 

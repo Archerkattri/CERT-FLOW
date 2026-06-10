@@ -143,7 +143,6 @@ class StaticWorld(_GridBase):
     ) -> None:
         super().__init__(rows, cols, rng, sigma, noise_family, noise_scale)
         # Store costs as 1-D array indexed by edge index.
-        n = len(self._edge_list)
         self._costs: np.ndarray = np.array(
             [self.graph[u][v] for u, v in self._edge_list], dtype=float
         )

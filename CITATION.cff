@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use CERT-FLOW in your research, please cite it as below."
+type: software
+title: "CERT-FLOW: Certified Route Planning under Drifting Costs"
+authors:
+  - family-names: Attri
+    given-names: Krishi
+    email: krishiattriwork@gmail.com
+    affiliation: "Seoul National University"
+doi: 10.5281/zenodo.20631475
+url: "https://github.com/Archerkattri/CERT-FLOW"
+repository-code: "https://github.com/Archerkattri/CERT-FLOW"
+license: MIT
+keywords:
+  - route planning
+  - conformal prediction
+  - path planning
+  - uncertainty quantification
+  - robotics
+  - drifting costs
+abstract: >-
+  Certified route planning under drifting edge costs. Every replanning round
+  emits a high-probability certificate LB <= OPT <= UB on the optimal route
+  cost, built from age-weighted non-exchangeable conformal prediction over
+  drift-adjusted observation residuals, directs paid sensing at the edges
+  that shrink the certified gap fastest, and gates ns-to-microsecond
+  preprocessing (all-pairs snapshot oracle, certified Contraction
+  Hierarchies) behind the certificate so static-speed queries expire the
+  instant drift exceeds tolerance.

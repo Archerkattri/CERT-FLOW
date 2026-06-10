@@ -198,7 +198,6 @@ def _csr_from_arcs(
     ``r_to_fwd`` maps each reverse slot to its forward slot so the cost array is
     the single source of truth (matching `FlatGraph`'s reverse-CSR contract).
     """
-    m = tails.shape[0]
     indptr = np.zeros(n + 1, dtype=np.int32)
     counts = np.bincount(tails, minlength=n)
     indptr[1:] = np.cumsum(counts).astype(np.int32)
@@ -298,7 +297,6 @@ def _astar_query(
 
     while hsize > 0:
         # pop root
-        f_top = hf[0]
         u = hnode[0]
         hsize -= 1
         if hsize > 0:
