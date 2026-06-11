@@ -6,7 +6,7 @@
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-56B4E9">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-1a7f37">
   <img alt="coverage claim" src="https://img.shields.io/badge/certificate%20coverage-1.000%20measured-D55E00">
-  <a href="https://doi.org/10.5281/zenodo.20631475"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.20631475.svg"></a>
+  <a href="https://doi.org/10.5281/zenodo.20633151"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.20633151.svg"></a>
 </p>
 
 A robot replanning through a world whose costs drift faces a question classical
@@ -152,7 +152,7 @@ forthcoming; the citation entry will be updated once the DOI is live).
   author = {Attri, Krishi},
   title  = {{CERT-FLOW}: Certified Route Planning under Drifting Costs},
   year   = {2026},
-  doi    = {10.5281/zenodo.20631475},
+  doi    = {10.5281/zenodo.20633151},
   url    = {https://github.com/Archerkattri/CERT-FLOW}
 }
 ```
