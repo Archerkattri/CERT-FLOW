@@ -144,8 +144,8 @@ docs/specs/     design spec; docs/theory/ working notes
 
 ## Citation
 
-Paper: *CERT: Certified Route Planning under Drifting Costs* (preprint
-forthcoming; the citation entry will be updated once the DOI is live).
+Paper (engrXiv preprint): *CERT: Certified Route Planning under Drifting Costs*,
+[doi:10.31224/7306](https://doi.org/10.31224/7306).
 
 ```bibtex
 @software{attri2026certflow,
@@ -161,8 +161,8 @@ The DOI above is the concept DOI (always resolves to the latest archived
 version); [CITATION.cff](CITATION.cff) carries the same metadata in
 machine-readable form.
 
-Paper preprint (extended version): DOI pending engrXiv moderation; this
-section will carry it once posted.
+Paper preprint (extended version): engrXiv,
+[doi:10.31224/7306](https://doi.org/10.31224/7306).
 
 ## License
 
