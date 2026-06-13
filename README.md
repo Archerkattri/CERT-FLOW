@@ -6,7 +6,7 @@
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-56B4E9">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-1a7f37">
   <img alt="coverage claim" src="https://img.shields.io/badge/certificate%20coverage-1.000%20measured-D55E00">
-  <a href="https://doi.org/10.5281/zenodo.20631475"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.20631475.svg"></a>
+  <a href="https://zenodo.org/badge/latestdoi/1265150144"><img alt="DOI" src="https://zenodo.org/badge/1265150144.svg"></a>
   <a href="https://doi.org/10.31224/7306"><img alt="engrXiv paper" src="https://img.shields.io/badge/engrXiv-10.31224%2F7306-009E73"></a>
 </p>
 
