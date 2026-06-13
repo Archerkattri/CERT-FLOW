@@ -7,6 +7,7 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT-1a7f37">
   <img alt="coverage claim" src="https://img.shields.io/badge/certificate%20coverage-1.000%20measured-D55E00">
   <a href="https://doi.org/10.5281/zenodo.20633151"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.20633151.svg"></a>
+  <a href="https://doi.org/10.31224/7306"><img alt="engrXiv paper" src="https://img.shields.io/badge/engrXiv-10.31224%2F7306-009E73"></a>
 </p>
 
 A robot replanning through a world whose costs drift faces a question classical
