@@ -8,7 +8,10 @@
   <img alt="coverage claim" src="https://img.shields.io/badge/certificate%20coverage-1.000%20measured-D55E00">
   <a href="https://zenodo.org/badge/latestdoi/1265150144"><img alt="DOI" src="https://zenodo.org/badge/1265150144.svg"></a>
   <a href="https://doi.org/10.31224/7306"><img alt="engrXiv paper" src="https://img.shields.io/badge/engrXiv-10.31224%2F7306-009E73"></a>
+  <a href="https://archerkattri.github.io/CERT-FLOW/"><img alt="project page" src="https://img.shields.io/badge/project%20page-live-56B4E9"></a>
 </p>
+
+<p align="center"><b><a href="https://archerkattri.github.io/CERT-FLOW/">🌐 Project page &amp; videos →</a></b></p>
 
 A robot replanning through a world whose costs drift faces a question classical
 planners never answer: **how good is my current route, given that most of the
