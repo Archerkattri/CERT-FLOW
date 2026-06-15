@@ -11,3 +11,6 @@ paper/*.log
 paper/*.out
 venue.md
 .claude/
+
+# raw visualization renders (curated copies live in site/assets/)
+viz_out/

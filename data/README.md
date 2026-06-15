@@ -169,3 +169,17 @@ print(f"arena: {h}x{w}")
 h, w, grid = load_map("data/movingai/maze/maze512-1-0.map")
 print(f"maze512-1-0: {h}x{w}")
 ```
+
+## FoMo (optional — off-road seasonal drift)
+
+Forêt Montmorency dataset (norlab-ulaval), `s3://fomo-dataset` (public, no
+credentials). We use the **cost signal only** — GNSS poses (`gt.txt`, TUM),
+battery power (`battery_logs.csv`), and weather/snow CSVs — **not** the
+9.4 TB of raw lidar/radar/camera. Fetch ~150 MB with:
+
+```bash
+cert_env/bin/python scripts/extval/fetch_fomo.py   # -> data/fomo/
+```
+
+Source: https://fomo.norlab.ulaval.ca · License: CC BY 4.0 · used in
+`docs/results/extended-validation.md` §6.

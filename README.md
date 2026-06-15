@@ -105,9 +105,20 @@ a multicore machine (`CERTFLOW_WORKERS=N` parallelizes seeds bit-identically).
 | Scale + engine benchmarks | `scripts/run_scale.py` | `docs/results/scale.md` |
 | Road networks (DIMACS NY/FLA, ALT) | `scripts/run_roadnet.py` | `docs/results/published-speed-comparison.md` |
 | Certified Contraction Hierarchies | `scripts/run_ch.py` | `docs/results/published-speed-comparison.md` |
+| Extended validation (baselines, stress, scaling) | `scripts/extval/*.py` | `docs/results/extended-validation.md` |
+| FoMo off-road seasonal drift | `scripts/extval/fomo_validation.py` | `docs/results/extended-validation.md` (§6) |
+| Comparison videos | `scripts/viz_compare.py`, `scripts/viz_gen/*.py` | `site/` (project page) |
 
 All scripts accept `--quick`. Real-data runs need `data/` (sources and loaders
-in `data/README.md`; ~230 MB total, links inside).
+in `data/README.md`; ~230 MB + optional FoMo cost-signal ~150 MB, links inside).
+
+## Videos
+
+Honest side-by-side comparisons (real runs, measured numbers) live in
+`site/` and render via `scripts/viz_compare.py` + `scripts/viz_gen/`: the
+certificate holding vs. AD\*'s stale band breaking (synthetic + a real
+MovingAI map), gap-directed sensing reaching near-oracle regret, and the
+exchangeable-conformal (CIA) coverage collapse under staleness on METR-LA.
 
 ## How it works
 
@@ -138,6 +149,8 @@ src/certflow/
   ch.py         certified Contraction Hierarchies (231 µs on 264k-node NY)
   roadnet.py    DIMACS road graphs + exact ALT on landmark lower-bounds
   drift.py / realworld.py / movingai.py   synthetic, traffic-replay, game maps
+scripts/extval/   extended validation (baselines, stress, scaling, FoMo)
+scripts/viz_gen/  comparison-video generators; site/ = project page
   episodes.py / harness.py / baselines.py runners, seeds, parametric strawman
 docs/results/   one markdown per experiment: numbers, anomalies, verdicts
 docs/specs/     design spec; docs/theory/ working notes
