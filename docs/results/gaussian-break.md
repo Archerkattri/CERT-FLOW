@@ -1,22 +1,37 @@
 # Gaussian-break experiment: edge-level calibration audit
 
-`scripts/run_gaussian_break.py` full (25 seeds x 400 rounds, 10x10 grids,
-alpha'=0.1 so alpha_edge ~ 0.0056, rho_w=0.999, ACI frozen).
+*The Gaussian plug-in building block miscovers at the tail — even on Gaussian noise — while CERT's conformal edge guarantee stays calibrated across every noise family.*
+
+**Reproduce:** `scripts/run_gaussian_break.py` full (25 seeds x 400 rounds, 10x10 grids, alpha'=0.1 so alpha_edge ~ 0.0056, rho_w=0.999, ACI frozen).
+
+> **Finding —** the parametric Gaussian interval is an unsound building block at the deep tail (it breaks even when the noise *is* Gaussian), whereas the distribution-free conformal edge guarantee holds across every noise family tested.
+
+## Setup
+
 The audit draws a uniformly random edge each valid round and tests a fresh
 observation (never fed back) against the planner's UNCLIPPED nominal interval
 — the fixed-edge observable guarantee (T1a). Planner-SELECTED edge miss rates
 are reported separately (selection diagnostic).
 
-| condition | planner | audit n | miss rate | 95% CI | ratio vs claim | verdict |
-|---|---|---:|---:|---|---:|---|
-| gaussian noise (control) | CERT     | 3484 | 0.0052 | [0.0031,0.0082] | 0.9  | ok |
-|                          | Gaussian | 9850 | 0.0268 | [0.0237,0.0302] | 4.8  | **BROKEN** |
-| student_t (df=3)         | CERT     | 4955 | 0.0071 | [0.0049,0.0098] | 1.3  | ok |
-|                          | Gaussian | 9850 | 0.0409 | [0.0371,0.0450] | 7.4  | **BROKEN** |
-| skewed (lognormal)       | CERT     | 4399 | 0.0073 | [0.0050,0.0103] | 1.3  | ok |
+## Calibration audit
+
+Condition groups are ordered best -> worst by their calibrated (CERT) miss
+rate, CERT above the matched Gaussian planner within each group. The target
+is alpha_edge; `ratio vs claim` is miss rate relative to that target, so at or
+below one is calibrated.
+
+| condition | planner | audit n · | miss rate ↓ | 95% CI · | ratio vs claim ↓ | verdict · |
+|---|---|---:|---:|---:|---:|---|
+| drift 0.02 + skewed      | CERT     | 4881 | **0.0016** | [0.0007,0.0032] | **0.3** | ok |
+|                          | Gaussian | 9850 | 0.0041 | [0.0029,0.0055] | 0.7 | ok |
+| gaussian noise (control) | CERT     | 3484 | 0.0052 | [0.0031,0.0082] | 0.9 | ok |
+|                          | Gaussian | 9850 | 0.0268 | [0.0237,0.0302] | 4.8 | **BROKEN** |
+| student_t (df=3)         | CERT     | 4955 | 0.0071 | [0.0049,0.0098] | 1.3 | ok |
+|                          | Gaussian | 9850 | 0.0409 | [0.0371,0.0450] | 7.4 | **BROKEN** |
+| skewed (lognormal)       | CERT     | 4399 | 0.0073 | [0.0050,0.0103] | 1.3 | ok |
 |                          | Gaussian | 9850 | 0.0554 | [0.0510,0.0601] | 10.0 | **BROKEN** |
-| drift 0.02 + skewed      | CERT     | 4881 | 0.0016 | [0.0007,0.0032] | 0.3  | ok |
-|                          | Gaussian | 9850 | 0.0041 | [0.0029,0.0055] | 0.7  | ok |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ## Findings
 
@@ -39,7 +54,8 @@ are reported separately (selection diagnostic).
 
 ## Root-cause findings
 
-Two candidate explanations are ruled out, and the true cause was isolated:
+Two candidate explanations are ruled out, and the true cause was isolated.
+
 - **Selection bias** (optimistic-path membership selects low-c_hat edges) is
   real as a phenomenon (T4's freshness gate exists because of it) but ruled
   out here by the independent audit.

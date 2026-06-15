@@ -1,13 +1,17 @@
 # Extended validation (RSS-strengthening)
 
+*Additive experiments that probe CERT harder and broaden the RSS-version evidence — every honest negative is kept, because the negatives are the point.*
+
+**Reproduce:** `scripts/extval/*.py` (each prints its measured numbers)
+
+> **Finding —** CERT's edge against exchangeable/fixed-weight conformal is **not** the quantile's age-weighting (that ties NexCP on bare residuals); it is the explicit `ρ·age` drift term plus the sense-to-certify loop. The soundness lemma holds adversarially, coverage is robust to correlation and heavy tails, and a real field-robotics dataset (FoMo) reproduces the core claim without a suspiciously-perfect number.
+
 Additional experiments beyond the published paper, run to probe the method
 harder and broaden the evidence for the RSS version. **These do not change the
 published engrXiv results**; they are additive. Every cell was run with real
 code and then adversarially audited for fairness and honesty by a separate
 reviewer. Findings that do **not** favour CERT are reported prominently —
 several of them sharpen or qualify the paper's claims.
-
-Reproduce: `scripts/extval/*.py` (each prints its measured numbers).
 
 ---
 
@@ -18,14 +22,21 @@ Reproduce: `scripts/extval/*.py` (each prints its measured numbers).
 NexCP (Barber et al. 2023, fixed index-geometric weights), ACI
 (Gibbs–Candès), and CERT's age-weighted `ConformalScorer`.
 
-| stream | method | coverage | median width |
+Rows within each stream are ordered best → worst by coverage **closeness above
+the target** (a method that under-covers fails the claim, so its tighter width
+is not "best"); the bold width is therefore the tightest among target-meeting
+methods.
+
+| stream | method | coverage ↑ | median width ↓ |
 |---|---|---:|---:|
-| synthetic (irregular sensing) | CERT (age) | 0.916 | 51.4 |
-| | NexCP (index) | 0.903 | **47.7** |
+| synthetic (irregular sensing) | NexCP (index) | **0.903** | **47.7** |
+| | CERT (age) | 0.916 | 51.4 |
 | | ACI (γ=0.1) | 0.887 | 35.0 |
-| METR-LA residuals | CERT (age) | 0.910 | 285.8 |
-| | NexCP (index) | 0.907 | **281.0** |
+| METR-LA residuals | NexCP (index) | **0.907** | **281.0** |
+| | CERT (age) | 0.910 | 285.8 |
 | | ACI (γ=0.1) | 0.896 | 203.8 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 **Honest finding (does not favour CERT): on the bare residual stream,
 age-weighting and fixed index-weighting are a statistical tie** — NexCP is
@@ -113,13 +124,19 @@ increments).
 
 `scripts/extval/scaling.py` (3 seeds, bounded drift, recommended config).
 
-| grid | \|E\| | L | p50 ms | p95 ms |
+Rows are ordered by grid size (the informational scaling axis); since latency
+rises monotonically with size, this also runs fastest → slowest, and the bold
+cells mark the lowest measured latency.
+
+| grid | \|E\| · | L · | p50 ms ↓ | p95 ms ↓ |
 |---|---:|---:|---:|---:|
-| 20×20 | 1520 | 38 | 0.94 | 1.80 |
+| 20×20 | 1520 | 38 | **0.94** | **1.80** |
 | 40×40 | 6240 | 78 | 2.33 | 5.26 |
 | 60×60 | 14160 | 118 | 4.06 | 14.88 |
 | 80×80 | 25280 | 158 | 7.41 | 28.96 |
 | 100×100 | 39600 | 198 | 10.13 | 46.64 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 p50 grows **10.8× for 26× the edges (sublinear)** — real-time at every size,
 consistent with the published `scale.md`.
@@ -146,10 +163,16 @@ arc-length; per-segment cost = traversal time and energy (∫|V·I|dt); each
 deployment is one observation, the seasonal change is the drift. ρ at the p75
 per-step convention (the documented traffic-tier interior optimum).
 
-| cost | edge coverage | path coverage | A1-violation | median width |
+Rows are ordered best → worst by edge coverage (the strained metric); width is
+reported in each cost's native unit (seconds vs joules) and so is not
+cross-ranked.
+
+| cost | edge coverage ↑ | path coverage ↑ | A1-violation ↓ | median width ↓ |
 |---|---:|---:|---:|---:|
-| traversal-time | 0.869 | 1.000 | 0.25 | 78.6 s |
-| energy | 0.879 | 1.000 | 0.25 | 1.96e5 J |
+| energy | **0.879** | **1.000** | 0.25 | 1.96e5 J |
+| traversal-time | 0.869 | **1.000** | 0.25 | 78.6 s |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 **Honest finding:** on **real off-road seasonal drift** — far more abrupt
 than bounded synthetic drift, with single-step predictions spanning months

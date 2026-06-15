@@ -1,30 +1,43 @@
 # MovingAI benchmark: real map structure, controlled drift
 
-`scripts/run_movingai.py` full (15 seeds, 400 max rounds, bounded drift
-rho=0.02, gaussian noise 0.05, delta=1, epsilon=8, alpha'=0.2, unknown-terrain
-start: no survey). Raw: `results/movingai/table.json`. Three map families: DAO
-dungeon (`arena.map`, full 49x49, scen endpoints, path 53 steps), street (64x64
-crop of `Berlin_0_256.map` at (128,128), path 87 steps), maze (64x64 crop of
-`maze512-1-0.map` at (384,128), path 86 steps). Same moving-robot semantics as
-Tier-2: robot pays true edge costs, traversal is a free observation, regret is
-against a clairvoyant oracle replanning on true costs every step. "cert-then-go"
-= sense (1 obs/round, 0.1 each) until epsilon-certified or budget 20 exhausted,
-then drive (sensing continues while driving, so spend exceeds 20).
+*Gap-targeted sensing wins on real DAO/street maps, the maze negative control behaves exactly as theory predicts, and certificate coverage holds wherever it is measurable.*
 
-| map | policy | goal% | rounds | regret mean | regret median | sense | coverage |
+**Reproduce:** `scripts/run_movingai.py`
+
+> **Finding —** On every map with route choice, gap-targeted (`cert`) sensing has the lowest regret and is the only sensing policy that beats driving blind once mission time is counted; the maze (one corridor, no route choice) confirms the null — all sensing policies are bit-identical there. The value is in *where* the observations go, not in having them.
+
+## Setup
+
+Full run: 15 seeds, 400 max rounds, bounded drift rho=0.02, gaussian noise 0.05, delta=1, epsilon=8, alpha'=0.2, unknown-terrain start (no survey). Raw: `results/movingai/table.json`.
+
+Three map families:
+
+- **DAO dungeon** — `arena.map`, full 49x49, scen endpoints, path 53 steps.
+- **Street** — 64x64 crop of `Berlin_0_256.map` at (128,128), path 87 steps.
+- **Maze** — 64x64 crop of `maze512-1-0.map` at (384,128), path 86 steps.
+
+Same moving-robot semantics as Tier-2: the robot pays true edge costs, traversal is a free observation, and regret is against a clairvoyant oracle replanning on true costs every step. "cert-then-go" = sense (1 obs/round, 0.1 each) until epsilon-certified or budget 20 exhausted, then drive (sensing continues while driving, so spend exceeds 20).
+
+## Results
+
+Rows are grouped by map and, within each map, ordered best -> worst by regret mean (lower is better). Bold marks the unique best value in each ranked column within a map family; columns where every policy ties (goal%) and ties between policies (e.g. coverage) are left unbolded since there is no single winner. On the maze, `blind` sorts first only because of an oracle step-discretization artifact (see the maze note under Findings).
+
+| map · | policy · | goal% ↑ | rounds ↓ | regret mean ↓ | regret median ↓ | sense ↓ | coverage ↑ |
 |---|---|---:|---:|---:|---:|---:|---:|
-| dao_arena     | **cert** | 100% | 252 | **3.37** | 3.87 | 25.1 | 1.000 |
-| dao_arena     | random   | 100% | 252 | 4.89     | 4.91 | 25.1 | 1.000 |
-| dao_arena     | max_age  | 100% | 252 | 4.08     | 4.63 | 25.2 | n/a   |
-| dao_arena     | blind    | 100% | 53  | 3.96     | 3.96 | 0.0  | n/a   |
-| street_berlin | **cert** | 100% | 286 | **7.52** | 7.56 | 28.5 | 1.000 |
-| street_berlin | random   | 100% | 286 | 8.33     | 7.65 | 28.6 | 1.000 |
-| street_berlin | max_age  | 100% | 286 | 8.59     | 8.02 | 28.6 | 1.000 |
-| street_berlin | blind    | 100% | 87  | 8.70     | 8.35 | 0.0  | n/a   |
-| maze          | cert     | 100% | 285 | 0.81     | 0.11 | 27.8 | 1.000 |
-| maze          | random   | 100% | 285 | 0.81     | 0.11 | 28.5 | 1.000 |
-| maze          | max_age  | 100% | 285 | 0.81     | 0.11 | 28.5 | n/a   |
-| maze          | blind    | 100% | 86  | -0.04    | -0.05| 0.0  | n/a   |
+| dao_arena     | cert     | 100% | 252      | **3.37** | **3.87** | 25.1     | 1.000 |
+| dao_arena     | blind    | 100% | **53**   | 3.96     | 3.96     | **0.0**  | n/a   |
+| dao_arena     | max_age  | 100% | 252      | 4.08     | 4.63     | 25.2     | n/a   |
+| dao_arena     | random   | 100% | 252      | 4.89     | 4.91     | 25.1     | 1.000 |
+| street_berlin | cert     | 100% | 286      | **7.52** | **7.56** | 28.5     | 1.000 |
+| street_berlin | random   | 100% | 286      | 8.33     | 7.65     | 28.6     | 1.000 |
+| street_berlin | max_age  | 100% | 286      | 8.59     | 8.02     | 28.6     | 1.000 |
+| street_berlin | blind    | 100% | **87**   | 8.70     | 8.35     | **0.0**  | n/a   |
+| maze          | blind    | 100% | **86**   | **-0.04**| **-0.05**| **0.0**  | n/a   |
+| maze          | cert     | 100% | 285      | 0.81     | 0.11     | 27.8     | 1.000 |
+| maze          | random   | 100% | 285      | 0.81     | 0.11     | 28.5     | 1.000 |
+| maze          | max_age  | 100% | 285      | 0.81     | 0.11     | 28.5     | n/a   |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ## Findings
 

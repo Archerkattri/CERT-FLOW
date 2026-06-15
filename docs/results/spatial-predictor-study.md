@@ -1,5 +1,11 @@
 # Spatial-predictor study: gain from neighbor-aware cost prediction
 
+*Can a spatially correlated point predictor shrink CERT's certified interval width, and does that offline gain survive deployment? Offline: large at long staleness. Deployed under route-focused sensing: it does not pay — it ships opt-in for dense / fixed-sensor regimes.*
+
+**Reproduce:** `scripts/study_spatial_predictor.py` (pure numpy/pandas, ~6 s; raw numbers in `results/spatial_predictor/study.json`)
+
+> **Finding —** A neighbor-regression predictor sharply cuts the residual conformal width at long staleness *offline, assuming neighbors are observed at `t`* (see the headline ratio table). Integrated into the planner, route-focused sensing leaves stale edges with stale neighborhoods, the gain evaporates, and the win it does extract is paid back as lower claimed confidence (coverage holds — soundness intact). Disposition: ship **opt-in**; the payoff regime is a continuously-reporting fixed sensor network, not denser robot sensing. The age-matched-retraining rescue hypothesis was tested and **refuted**.
+
 **Question.** CERT predicts each stale edge's current cost as
 last-observation-carried-forward (LOCF). The conformal layer calibrates the
 residuals of *that* predictor, so any point predictor with smaller residuals
@@ -26,15 +32,14 @@ Evaluated on every 4th time bin, all sensors. Metric: MAE and P90 of the
 absolute residual; headline is the interval-width ratio P1/P0 and P2/P0 at P90
 (P90 is the symmetric conformal quantile that sets the width).
 
-Script: `scripts/study_spatial_predictor.py`
-(pure numpy/pandas, ~6 s; raw numbers in `results/spatial_predictor/study.json`).
-
 ## Coverage of the neighbor structure (honest accounting)
 
-| dataset  | sensors | fraction with ≥1 neighbor ≤3 km | isolated | mean degree |
-|----------|--------:|--------------------------------:|---------:|------------:|
-| METR-LA  |     207 |                           0.990 |        2 |         7.8 |
-| PEMS-BAY |     325 |                           0.960 |       13 |         6.5 |
+| dataset · | sensors · | fraction with ≥1 neighbor ≤3 km ↑ | isolated ↓ | mean degree · |
+|-----------|----------:|----------------------------------:|-----------:|--------------:|
+| METR-LA   |       207 |                         **0.990** |      **2** |           7.8 |
+| PEMS-BAY  |       325 |                             0.960 |         13 |           6.5 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 Spatial prediction is **only available to the 96–99 % of sensors that have a
 neighbor within 3 km**. Isolated sensors fall back to P0 unconditionally; their
@@ -43,38 +48,50 @@ reference (the predictors do not change them).
 
 ## METR-LA — all fresh neighbors
 
-| age | P0 P90 | P1 P90 | P2 P90 | **P1/P0** | **P2/P0** | P0 MAE | P1 MAE | P2 MAE | iso P90 | iso MAE |
-|----:|-------:|-------:|-------:|----------:|----------:|-------:|-------:|-------:|--------:|--------:|
-|   1 |  6.375 |  6.521 |  5.967 |     1.023 |     0.936 |  2.489 |  2.666 |  2.464 |   7.674 |   3.267 |
-|   3 |  7.653 |  7.900 |  7.229 |     1.032 |     0.945 |  3.131 |  3.312 |  3.080 |   9.946 |   4.115 |
-|   6 |  8.768 |  9.264 |  8.657 |     1.057 |     0.987 |  3.741 |  3.840 |  3.593 |  12.329 |   4.906 |
-|  12 | 11.667 | 11.736 | 10.508 |     1.006 |     0.901 |  4.814 |  4.649 |  4.132 |  15.250 |   5.863 |
-|  24 | 19.875 | 15.194 | 11.592 |     0.764 |     0.583 |  6.529 |  5.682 |  4.506 |  19.576 |   7.266 |
-|  48 | 30.250 | 18.008 | 11.830 |     0.595 |     0.391 |  8.582 |  6.756 |  4.628 |  22.805 |   8.913 |
+Rows sweep edge age (informational `·`); the best value in each metric column is in bold.
+
+| age · | P0 P90 ↓ | P1 P90 ↓ | P2 P90 ↓ | P1/P0 ↓ | P2/P0 ↓ | P0 MAE ↓ | P1 MAE ↓ | P2 MAE ↓ | iso P90 ↓ | iso MAE ↓ |
+|------:|---------:|---------:|---------:|--------:|--------:|---------:|---------:|---------:|----------:|----------:|
+|     1 |**6.375** |**6.521** |**5.967** |   1.023 |   0.936 |**2.489** |**2.666** |**2.464** | **7.674** | **3.267** |
+|     3 |    7.653 |    7.900 |    7.229 |   1.032 |   0.945 |    3.131 |    3.312 |    3.080 |     9.946 |     4.115 |
+|     6 |    8.768 |    9.264 |    8.657 |   1.057 |   0.987 |    3.741 |    3.840 |    3.593 |    12.329 |     4.906 |
+|    12 |   11.667 |   11.736 |   10.508 |   1.006 |   0.901 |    4.814 |    4.649 |    4.132 |    15.250 |     5.863 |
+|    24 |   19.875 |   15.194 |   11.592 |   0.764 |   0.583 |    6.529 |    5.682 |    4.506 |    19.576 |     7.266 |
+|    48 |   30.250 |   18.008 |   11.830 |**0.595**|**0.391**|    8.582 |    6.756 |    4.628 |    22.805 |     8.913 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ## PEMS-BAY — all fresh neighbors (replication)
 
-| age | P0 P90 | P1 P90 | P2 P90 | **P1/P0** | **P2/P0** | P0 MAE | P1 MAE | P2 MAE | iso P90 | iso MAE |
-|----:|-------:|-------:|-------:|----------:|----------:|-------:|-------:|-------:|--------:|--------:|
-|   1 |  2.100 |  2.175 |  2.141 |     1.036 |     1.019 |  1.002 |  1.012 |  1.004 |   1.900 |   0.928 |
-|   3 |  3.200 |  3.433 |  3.519 |     1.073 |     1.100 |  1.609 |  1.560 |  1.599 |   2.700 |   1.387 |
-|   6 |  4.500 |  4.780 |  4.816 |     1.062 |     1.070 |  2.240 |  2.061 |  2.084 |   3.600 |   1.872 |
-|  12 |  6.900 |  6.717 |  5.930 |     0.973 |     0.859 |  3.168 |  2.646 |  2.478 |   5.120 |   2.582 |
-|  24 | 12.800 |  9.584 |  6.497 |     0.749 |     0.508 |  4.700 |  3.421 |  2.725 |   8.700 |   3.730 |
-|  48 | 23.700 | 12.225 |  6.541 |     0.516 |     0.276 |  6.752 |  4.286 |  2.814 |  15.100 |   5.224 |
+Rows sweep edge age (informational `·`); the best value in each metric column is in bold.
+
+| age · | P0 P90 ↓ | P1 P90 ↓ | P2 P90 ↓ | P1/P0 ↓ | P2/P0 ↓ | P0 MAE ↓ | P1 MAE ↓ | P2 MAE ↓ | iso P90 ↓ | iso MAE ↓ |
+|------:|---------:|---------:|---------:|--------:|--------:|---------:|---------:|---------:|----------:|----------:|
+|     1 |**2.100** |**2.175** |**2.141** |   1.036 |   1.019 |**1.002** |**1.012** |**1.004** | **1.900** | **0.928** |
+|     3 |    3.200 |    3.433 |    3.519 |   1.073 |   1.100 |    1.609 |    1.560 |    1.599 |     2.700 |     1.387 |
+|     6 |    4.500 |    4.780 |    4.816 |   1.062 |   1.070 |    2.240 |    2.061 |    2.084 |     3.600 |     1.872 |
+|    12 |    6.900 |    6.717 |    5.930 |   0.973 |   0.859 |    3.168 |    2.646 |    2.478 |     5.120 |     2.582 |
+|    24 |   12.800 |    9.584 |    6.497 |   0.749 |   0.508 |    4.700 |    3.421 |    2.725 |     8.700 |     3.730 |
+|    48 |   23.700 |   12.225 |    6.541 |**0.516**|**0.276**|    6.752 |    4.286 |    2.814 |    15.100 |     5.224 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ## Sensitivity: only HALF the neighbors fresh
 
-| dataset  | age | P1/P0 | P2/P0 |
-|----------|----:|------:|------:|
-| METR-LA  |   6 | 1.158 | 0.985 |
-| METR-LA  |  12 | 1.103 | 0.904 |
-| METR-LA  |  24 | 0.822 | 0.596 |
-| METR-LA  |  48 | 0.646 | 0.411 |
-| PEMS-BAY |   6 | 1.156 | 1.073 |
-| PEMS-BAY |  12 | 1.049 | 0.879 |
-| PEMS-BAY |  24 | 0.814 | 0.532 |
-| PEMS-BAY |  48 | 0.567 | 0.292 |
+Rows sweep dataset × age (informational `·`); the best (lowest) ratio in each column is in bold.
+
+| dataset · | age · | P1/P0 ↓ | P2/P0 ↓ |
+|-----------|------:|--------:|--------:|
+| METR-LA   |     6 |   1.158 |   0.985 |
+| METR-LA   |    12 |   1.103 |   0.904 |
+| METR-LA   |    24 |   0.822 |   0.596 |
+| METR-LA   |    48 |   0.646 |   0.411 |
+| PEMS-BAY  |     6 |   1.156 |   1.073 |
+| PEMS-BAY  |    12 |   1.049 |   0.879 |
+| PEMS-BAY  |    24 |   0.814 |   0.532 |
+| PEMS-BAY  |    48 |**0.567**|**0.292**|
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 Halving the fresh-neighbor set leaves **P2 essentially unchanged** (it leans on
 the regression's own `speed_i(t-a)` term and a noisier-but-still-informative
@@ -83,12 +100,16 @@ choice.
 
 ## Headline width-ratio numbers (P2 vs P0, at P90)
 
-| age (bins) | METR-LA P2/P0 | PEMS-BAY P2/P0 | METR-LA improvement | PEMS-BAY improvement |
-|-----------:|--------------:|---------------:|--------------------:|---------------------:|
-|          6 |         0.987 |          1.070 |               +1.3 % |               −7.0 % |
-|         12 |         0.901 |          0.859 |               +9.9 % |              +14.1 % |
-|         24 |         0.583 |          0.508 |              +41.7 % |              +49.2 % |
-|         48 |         0.391 |          0.276 |              +58.6 % |              +72.4 % |
+Rows sweep edge age (informational `·`); the strongest result in each column is in bold.
+
+| age (bins) · | METR-LA P2/P0 ↓ | PEMS-BAY P2/P0 ↓ | METR-LA improvement ↑ | PEMS-BAY improvement ↑ |
+|-------------:|----------------:|-----------------:|----------------------:|-----------------------:|
+|            6 |           0.987 |            1.070 |                +1.3 % |                −7.0 % |
+|           12 |           0.901 |            0.859 |                +9.9 % |               +14.1 % |
+|           24 |           0.583 |            0.508 |               +41.7 % |               +49.2 % |
+|           48 |       **0.391** |        **0.276** |            **+58.6 %**|            **+72.4 %** |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ## Interpretation (honest)
 
@@ -151,12 +172,16 @@ established and replicated; the integration must preserve T1 semantics.
 Integrated as predictor mode (age-binned conformal widths, per-bin annealing
 charged to the claim, per-edge fallback chain; CertPlanner(..., predictor=...)).
 Full-day METR-LA validation (4 seeds, val windows past the training region,
-online-rho baseline):
+online-rho baseline). Rows are ranked best → worst on the operational primary
+metric (gap median, lower is better); coverage is tied so soundness
+does not separate them.
 
-| | coverage | gap median | mean confidence | valid rounds |
-|---|---:|---:|---:|---:|
-| predictor off | 1.000 | 3073 s | 0.557 | 1022 |
-| predictor on  | 1.000 | 3371 s | 0.446 | 873 (38,672 edge-pricings) |
+| condition       | coverage ↑ | gap median ↓ | mean confidence ↑ | valid rounds ↑          |
+|-----------------|-----------:|-------------:|------------------:|------------------------:|
+| predictor off   |      1.000 |   **3073 s** |         **0.557** |                **1022** |
+| predictor on    |      1.000 |       3371 s |             0.446 | 873 (38,672 edge-pricings) |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 The offline +42-49% was an upper bound assuming neighbors observed AT t.
 Deployed, route-focused sensing leaves stale edges with stale neighborhoods
@@ -207,11 +232,14 @@ age-matched}; 6 seeds x 200 rounds; `offset_base_bins=20000`).
 
 Both models fit on `[:18000]`; evaluated on the held-out tail with neighbors
 read at the deployment-realistic age `b` (the regime the fresh model never saw).
+Rows sweep neighbor age `b` (informational `·`); best value in each column is in bold.
 
-| nbr age b (bins) | fresh-trained P90 | age-matched P90 | am / fresh |
-|-----------------:|------------------:|----------------:|-----------:|
-|                6 |            14.428 |          14.399 |      0.998 |
-|               12 |            16.158 |          15.991 |      0.990 |
+| nbr age b (bins) · | fresh-trained P90 ↓ | age-matched P90 ↓ | am / fresh ↓ |
+|-------------------:|--------------------:|------------------:|-------------:|
+|                  6 |          **14.428** |        **14.399** |        0.998 |
+|                 12 |              16.158 |            15.991 |    **0.990** |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 Age-matching cuts the held-out residual P90 by **0.2 % (b=6) and 1.0 % (b=12)** —
 essentially nothing. The neighbor-age feature carries almost no extra signal at
@@ -221,25 +249,39 @@ sharpen the prediction. **The mechanism is inert before the planner even runs.**
 
 ### Planner table (Experiment A, METR-LA, 6 seeds x 200 rounds)
 
-| condition            | valid | coverage | gap median (s) | mean conf | pred_used_rounds |
-|----------------------|------:|---------:|---------------:|----------:|-----------------:|
-| k=1, pred=off        |  1035 |    1.000 |         3092.6 |     0.562 |              0.0 |
-| k=1, pred=fresh      |   908 |    1.000 |         2978.8 |     0.425 |           5085.8 |
-| k=1, pred=age-matched|   782 |    1.000 |         2847.2 |     0.368 |           6213.2 |
-| k=4, pred=off        |  1160 |    1.000 |         3153.8 |     0.653 |              0.0 |
-| k=4, pred=fresh      |  1154 |    1.000 |         2851.4 |     0.581 |          16877.2 |
-| k=4, pred=age-matched|  1142 |    1.000 |         2786.7 |     0.563 |          19778.8 |
-| k=8, pred=off        |  1184 |    1.000 |         3293.6 |     0.660 |              0.0 |
-| k=8, pred=fresh      |  1173 |    1.000 |         3148.1 |     0.621 |          22441.0 |
-| k=8, pred=age-matched|  1165 |    1.000 |         3120.5 |     0.627 |          38174.5 |
+Rows are grouped by sensing budget `k` (the controlled informational axis `·`, not
+globally reordered); within the table the best value in each ranked column is in
+bold. Note the densest-budget `pred=off` optima on valid / mean conf are
+confounded by the sensing budget, not a predictor effect — read them per-`k` block.
 
-Gap relative to the matched-k LOCF baseline (coverage uniformly 1.000):
+| condition             | valid ↑  | coverage ↑ | gap median (s) ↓ | mean conf ↑ | pred_used_rounds · |
+|-----------------------|---------:|-----------:|-----------------:|------------:|-------------------:|
+| k=1, pred=off         |     1035 |      1.000 |           3092.6 |       0.562 |                0.0 |
+| k=1, pred=fresh       |      908 |      1.000 |           2978.8 |       0.425 |             5085.8 |
+| k=1, pred=age-matched |      782 |      1.000 |           2847.2 |       0.368 |             6213.2 |
+| k=4, pred=off         |     1160 |      1.000 |           3153.8 |       0.653 |                0.0 |
+| k=4, pred=fresh       |     1154 |      1.000 |           2851.4 |       0.581 |            16877.2 |
+| k=4, pred=age-matched |     1142 |      1.000 |       **2786.7** |       0.563 |            19778.8 |
+| k=8, pred=off         | **1184** |      1.000 |           3293.6 |   **0.660** |                0.0 |
+| k=8, pred=fresh       |     1173 |      1.000 |           3148.1 |       0.621 |            22441.0 |
+| k=8, pred=age-matched |     1165 |      1.000 |           3120.5 |       0.627 |            38174.5 |
 
-| k | age-matched vs off | fresh vs off | age-matched vs fresh | valid (am vs off) |
-|--:|-------------------:|-------------:|---------------------:|------------------:|
-| 1 |             −7.9 % |       −3.7 % |               −4.4 % |           −24.4 % |
-| 4 |            −11.6 % |       −9.6 % |               −2.3 % |            −1.6 % |
-| 8 |             −5.3 % |       −4.4 % |               −0.9 % |            −1.6 % |
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
+
+Gap relative to the matched-k LOCF baseline (coverage uniformly 1.000). Rows
+sweep sensing budget `k` (informational `·`); a more-negative gap is a larger
+improvement, so the strongest gap reduction in each method column is in bold.
+The `valid (am vs off)` column is a *regression* the predictor introduces, not an
+improvement — read it as a cost; its largest drop is the lowest-budget selection
+artifact, not a win.
+
+| k · | age-matched vs off ↓ | fresh vs off ↓ | age-matched vs fresh ↓ | valid (am vs off) ↓ |
+|----:|---------------------:|---------------:|-----------------------:|--------------------:|
+|   1 |               −7.9 % |         −3.7 % |             **−4.4 %** |              −24.4 % |
+|   4 |          **−11.6 %** |     **−9.6 %** |                 −2.3 % |              −1.6 % |
+|   8 |               −5.3 % |         −4.4 % |                 −0.9 % |              −1.6 % |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ### Verdict: mismatch hypothesis REFUTED
 

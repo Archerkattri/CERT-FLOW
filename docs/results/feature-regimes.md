@@ -1,6 +1,12 @@
 # Feature-regime validation: spatial predictor (dense sensing) and decision-uniform
 
-Script: `scripts/run_feature_regimes.py`
+*Two opt-in CERT-FLOW features stress-tested in their intended regimes — the spatial predictor under dense sensing (METR-LA), and decision-uniform certificate spending — reporting honest, mostly-negative outcomes.*
+
+**Reproduce:** `scripts/run_feature_regimes.py`
+
+> **Finding —** Neither feature delivers its headline benefit in these regimes: the dense-sensing predictor gain at the highest sensing rate is real but tiny (and it reverses at the moderate rate, and is a warm-up artifact at the lowest rate), while decision-uniform mode is indistinguishable from baseline here except for the mechanically-expected confidence inflation. Soundness (full coverage) holds throughout.
+
+---
 
 ## Experiment A — Spatial predictor in its designed dense-sensing regime (METR-LA)
 
@@ -16,14 +22,20 @@ dense reporting sensor network rather than a single rover.
 predictor pays. Predictor-on should beat predictor-off on gap at k=8, be
 neutral-or-negative at k=1 (replicating the documented negative from the sparse regime).
 
-| condition | valid rounds | coverage | gap median (s) | mean confidence | pred_used_rounds |
+Rows ordered best -> worst by the primary metric (gap median, lower is better).
+Coverage is tied across every condition (soundness held throughout), so it carries no
+bold.
+
+| condition | valid rounds ↑ | coverage ↑ | gap median (s) ↓ | mean confidence ↑ | pred_used_rounds · |
 |---|---:|---:|---:|---:|---:|
-| k=1, pred=off |  1038 | 1.000 | 3528.6 | 0.577 |      0.0 |
-| k=1, pred=on  |   867 | 1.000 | 2961.5 | 0.407 |   4846.5 |
+| k=1, pred=on  |   867 | 1.000 | **2961.5** | 0.407 |   4846.5 |
 | k=4, pred=off |  1160 | 1.000 | 2969.6 | 0.651 |      0.0 |
 | k=4, pred=on  |  1156 | 1.000 | 3075.3 | 0.579 |  16959.8 |
-| k=8, pred=off |  1184 | 1.000 | 3385.2 | 0.663 |      0.0 |
 | k=8, pred=on  |  1169 | 1.000 | 3305.7 | 0.613 |  25843.7 |
+| k=8, pred=off |  **1184** | 1.000 | 3385.2 | **0.663** |      0.0 |
+| k=1, pred=off |  1038 | 1.000 | 3528.6 | 0.577 |      0.0 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 Soundness held throughout: coverage 1.000 in all six conditions.
 
@@ -77,10 +89,16 @@ alpha'/5 = 0.04 per certificate instead of 0.2). Acted-on rounds = certified rou
 Episode-level metric: fraction of episodes where every acted-on certificate was
 geometrically valid (LB <= true OPT <= UB).
 
-| condition | valid% | coverage | cert% | gap median | mean confidence | ep_all_valid |
+Rows ordered best -> worst by the primary distinguishing metric (mean confidence, higher
+is better). Every other ranked column is tied between conditions (valid%, coverage, cert%,
+gap median, and ep_all_valid all identical), so only mean confidence carries a bold.
+
+| condition | valid% ↑ | coverage ↑ | cert% ↑ | gap median ↓ | mean confidence ↑ | ep_all_valid ↑ |
 |---|---:|---:|---:|---:|---:|---:|
+| decision_uniform=on  | 96.7% | 1.000 | 22.1% | 5.77 | **0.696** | 1.000 |
 | decision_uniform=off | 96.7% | 1.000 | 22.1% | 5.77 | 0.647 | 1.000 |
-| decision_uniform=on  | 96.7% | 1.000 | 22.1% | 5.77 | 0.696 | 1.000 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 **Findings.**
 

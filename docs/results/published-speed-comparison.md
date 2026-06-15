@@ -1,5 +1,11 @@
 # Published-speed comparison: where CERT sits in the planning-speed landscape
 
+*CERT's measured latency placed against the published numbers of every relevant planning family — honestly, including where we lose.*
+
+**Reproduce:** `scripts/run_roadnet.py`, `scripts/run_ch.py` (road-scale ALT / CH); planner-scale numbers from `docs/results/scale.md`.
+
+> **Finding —** CERT is *slower than every static-known-cost planner* (grid or road) because it solves a harder problem — uncertain, drifting, online, certified — and *faster than every same-class guaranteed-uncertainty planner* we could find a number for. The methods that carry our *kind* of guarantee (conformal) publish no per-decision latency at all.
+
 Goal: compare CERT's measured latency against the *published* numbers of the
 relevant algorithm families — their reported speeds, on their hardware, for
 their problem class.
@@ -24,9 +30,14 @@ That is the workload the times below must be read against.
 ## (a) The landscape table
 
 Every number is the authors' *own* reported figure on *their* hardware. "Problem
-class" and "guarantee carried" are the load-bearing columns.
+class" and "guarantee carried" are the load-bearing columns. This is a
+**categorical catalog, not a ranked comparison**: rows are grouped by problem
+class (road families, grid families, D\* Lite, planning-under-uncertainty), and
+the latencies are on different graphs and different hardware, so they are *not*
+directly comparable across rows — section (b) does the honest like-for-like work.
+Bold marks each source's headline figure.
 
-| Method family | Published latency | Graph size | Hardware / year | Problem class | Guarantee carried |
+| Method family · | Published latency ↓ | Graph size · | Hardware / year · | Problem class · | Guarantee carried · |
 |---|---|---|---|---|---|
 | **Dijkstra (baseline)** | 2.55 s / query [1] | W. Europe, ~18M v / ~42M arcs | Intel X5680 3.33 GHz, 1 core, 2014 | static, known costs, online (no preproc) | exact optimum |
 | **CH** (Contraction Hierarchies) | **110 µs** / query [1] | W. Europe ~18M v | X5680 3.33 GHz, 1c, 2014 | static, known costs, **preprocessed** (5 min, 0.4 GiB) | exact optimum |
@@ -232,8 +243,12 @@ benchmark pairs **and** 200 pairs under a worst-case +-20% cost perturbation
 
 ### (a) Our measured numbers
 
-| Graph | Nodes | Arcs | FastDijkstra full query p50 / p95 | **ALT query p50 / p95** | Landmark preproc | "Customization" (1% cost perturb) |
-|---|---|---|---|---|---|---|
+Rows are two *different* graphs (ordered by size), not competing methods, so they
+are not ranked against each other; within each row, **bold** marks the accelerated
+ALT result and the (near-free) cost of absorbing a bounded cost change.
+
+| Graph · | Nodes · | Arcs · | FastDijkstra full query p50 / p95 ↓ | **ALT query p50 / p95** ↓ | Landmark preproc ↓ | "Customization" (1% cost perturb) ↓ |
+|---|---:|---:|---:|---:|---:|---:|
 | **NY**  | 264,346   | 733,846   | 203.9 / 340.5 ms | **9.3 / 32.1 ms**  | 1.8 s (16 landmarks, both dirs) | **0.015 ms** (7,338 edges) |
 | **FLA** | 1,070,376 | 2,712,798 | 749.3 / 1301.5 ms | **45.5 / 200.0 ms** | 5.5 s | **0.067 ms** (27,127 edges) |
 
@@ -301,7 +316,11 @@ certificate establishes every edge interval within tau of the snapshot,
 that license builds an all-pairs oracle on the certified estimates
 (`snapshot_query`); the gate expires it the moment drift exceeds tau.
 
-| quantity | CERT certified snapshot | published static SOTA |
+This table is transposed — rows are quantities, the two columns are the
+conditions being contrasted (CERT vs published static SOTA), so there is nothing
+to rank; **bold** marks CERT's certified result for each quantity.
+
+| quantity · | CERT certified snapshot · | published static SOTA · |
 |---|---|---|
 | cost query | **269-394 ns** | JSTS 0.3us / HL 0.56us / JPS+BB+ 4us |
 | full path query (gate cached) | **8.7 us** | ~us-class |
@@ -348,7 +367,11 @@ AMD Ryzen Threadripper PRO 7975WX, Python + numba kernels, CPU only, 2026.
 The full-NY Python-side ordering builds in **~1.8 min** (well inside budget), so
 all query numbers are on the *full* graph, not a subgraph.
 
-| quantity | CERT certified CH (full NY) | published CH [1] | published HL [1] | our ALT (NY) | our FastDijkstra (NY) |
+This table is transposed — rows are quantities, columns are the methods being
+contrasted — so the rows are not ranked; **bold** marks CERT's certified-CH
+result for each quantity.
+
+| quantity · | CERT certified CH (full NY) · | published CH [1] · | published HL [1] · | our ALT (NY) · | our FastDijkstra (NY) · |
 |---|---|---|---|---|---|
 | build / preprocessing | **108 s** (973,641 shortcuts) | 5 min (18M v, C++) | 37 min, 18.8 GiB | 1.8 s (16 landmarks) | 0 |
 | **cost-only query p50 / p95** | **0.231 / 0.364 ms** | **0.110 ms** | 0.00056 ms | 9.3 / 32.1 ms | 14.1 / 28.4 ms |
@@ -381,12 +404,20 @@ backward CH distance gives an **admissible + consistent** potential
 array within **+-20%** of the build costs — verified: **0/200 mismatches** under a
 fresh +-20% perturbation — with **zero rebuild** of the hierarchy.
 
-| variant | query p50 / p95 (NY) | cost to absorb a +-20% change | exact under +-20%? |
-|---|---|---|---|
-| exact CH (rebuild-on-gate) | 0.231 / 0.364 ms | **108 s full rebuild** | n/a (invalid) |
-| **CH-potentials A* (bounded-change)** | **12.6 / 24.5 ms** | **0.34 ms** (CSR write) | **yes (0/200)** |
-| ALT (lower-bound landmarks) | 9.3 / 32.1 ms | 0.015 ms (CSR write) | yes |
+Rows are ranked best -> worst on **cost to absorb a bounded cost change** — the
+"costs moved, keep planning" operation this section is about (cheapest is best);
+**bold** = best in each ranked column. Note the trade space: the row with the
+fastest *query* (exact CH) is the *worst* at absorbing change, which is the whole
+point.
+
+| variant · | query p50 / p95 (NY) ↓ | cost to absorb a +-20% change ↓ | exact under +-20%? · |
+|---|---:|---:|---|
+| ALT (lower-bound landmarks) | 9.3 / 32.1 ms | **0.015 ms** (CSR write) | yes |
+| CH-potentials A* (bounded-change) | 12.6 / 24.5 ms | 0.34 ms (CSR write) | yes (0/200) |
 | CRP (published) | ~1.65 ms | ~1 s parallel / ~11 s seq customization | exact for new metric |
+| exact CH (rebuild-on-gate) | **0.231 / 0.364 ms** | 108 s full rebuild | n/a (invalid) |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 The CH-potentials query (12.6 ms p50) lands between raw CH and ALT in the trade
 space exactly as expected: it is slower than the exact CH query because it runs a

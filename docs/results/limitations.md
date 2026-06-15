@@ -1,10 +1,20 @@
 # Limitations
 
-Every limitation documented in the paper, theory note, and results docs, with
-its disposition. Categories: CLOSED (implemented + measured or proved),
-CHARACTERIZED (root cause + partial mitigation + honest bound), INHERENT
-(cannot be closed in software), and AUDIT-FOUND-AND-FIXED (defects surfaced by
-adversarial review and resolved).
+*Every limitation documented in the paper, theory note, and results docs — each
+with an explicit disposition. Honest negatives are kept on purpose.*
+
+> **Finding —** Most limitations on record are CLOSED; the rest are either
+> CHARACTERIZED with an honest residual bound, INHERENT (not closable in
+> software), or AUDIT-FOUND-AND-FIXED. None is left undocumented or hand-waved.
+
+This is a disposition registry, ordered best disposition first. The four
+categories, in that order:
+
+- **CLOSED** — implemented + measured, or proved.
+- **CHARACTERIZED** — root cause + partial mitigation + honest residual bound.
+- **INHERENT** — cannot be closed in software.
+- **AUDIT-FOUND-AND-FIXED** — defects surfaced by adversarial review and
+  resolved.
 
 ## (a) Closed
 

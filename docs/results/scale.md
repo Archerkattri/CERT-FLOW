@@ -1,15 +1,20 @@
 # Full-loop CERT planner: scale benchmark
 
-`scripts/run_scale.py`, full (3 seeds × 150 rounds/cell). Raw:
-`results/scale/table.json` (regenerable, not committed).
+*Per-round latency, memory, and certificate health for the full CERT planner loop across grid sizes 10x10 -> 60x60, isolating where time goes and which config is real-time viable.*
+
+**Reproduce:** `scripts/run_scale.py`
+
+Full sweep: 3 seeds × 150 rounds/cell. Raw: `results/scale/table.json` (regenerable, not committed).
+
+> **Finding —** With the pre-widening cache (B=10), the planner holds a ~4 ms median round at 60x60 (14 160 edges); the dominant cost is the full-graph interval refresh (B=0), not sensing or conformal arithmetic. The fastgraph numba engine then brings every size to 2-4 ms median end-to-end. Certificates honestly report `valid = False` during warm-up: on grids >=40x40 the Bonferroni per-edge level cannot converge within 150 rounds, and the planner says so rather than degrading silently.
 
 World: `BoundedDriftWorld`, 4-connected directed grid, rho=0.02, noise_scale=0.05,
 initial survey, start=(0,0), goal=(rows-1,cols-1), delta=1.0.
 
 Configs measured:
 
-| id | description |
-|----|-------------|
+| id · | description · |
+|------|---------------|
 | A | defaults: B=10, k_alternatives=3, rho_mode="given" |
 | B | exact: B=0, k_alternatives=0 (no cache, no alternatives Dijkstras) |
 | C | `recommended_config()`: online rho, hybrid sensing, kappa, adaptive_rate, sum_aware_ub |
@@ -20,24 +25,31 @@ Peak RSS from `resource.getrusage(RUSAGE_SELF).ru_maxrss` (Linux, kB; cumulative
 
 ## Latency table
 
-| size  | config | rounds | p50 (ms) | p95 (ms) | RSS (MB) | valid% | cert% | gap p50 |
-|-------|--------|-------:|---------:|---------:|---------:|-------:|------:|--------:|
-| 10x10 | A defaults B=10    | 450 |  0.67 |  1.86 | 103 |  83.6 | 0.0 | 34.66 |
-| 10x10 | B exact B=0 k=0    | 450 |  1.84 |  2.31 | 104 |  86.4 | 0.0 | 33.04 |
-| 10x10 | C recommended      | 450 |  1.64 |  2.23 | 104 |  85.6 | 0.0 | 16.01 |
-| 10x10 | D defaults k=0     | 450 |  0.49 |  1.70 | 104 |  83.6 | 0.0 | 34.66 |
-| 20x20 | A defaults B=10    | 450 |  1.46 |  7.06 | 116 |  61.1 | 0.0 | 91.89 |
-| 20x20 | B exact B=0 k=0    | 450 |  7.21 |  9.48 | 116 |  58.2 | 0.0 | 89.60 |
-| 20x20 | C recommended      | 450 |  7.71 | 13.37 | 117 |  46.4 | 0.0 | 47.03 |
-| 20x20 | D defaults k=0     | 450 |  0.67 |  6.36 | 117 |  61.1 | 0.0 | 91.89 |
-| 40x40 | A defaults B=10    | 450 |  2.54 | 28.92 | 168 |   0.0 | 0.0 |   inf |
-| 40x40 | B exact B=0 k=0    | 450 | 31.02 | 43.83 | 168 |   0.0 | 0.0 |   inf |
-| 40x40 | C recommended      | 450 | 34.85 | 45.93 | 170 |   0.0 | 0.0 |   inf |
-| 40x40 | D defaults k=0     | 450 |  2.44 | 30.83 | 170 |   0.0 | 0.0 |   inf |
-| 60x60 | A defaults B=10    | 450 |  4.34 | 69.60 | 250 |   0.0 | 0.0 |   inf |
-| 60x60 | B exact B=0 k=0    | 450 | 64.06 |107.61 | 251 |   0.0 | 0.0 |   inf |
-| 60x60 | C recommended      | 450 | 99.30 |123.59 | 257 |   0.0 | 0.0 |   inf |
-| 60x60 | D defaults k=0     | 450 |  4.42 | 69.54 | 257 |   0.0 | 0.0 |   inf |
+Rows are blocked by `size` (the sweep axis) and, within each block, ordered best -> worst
+by the primary metric **p50 (ms)** ↓. Bold marks the best value per size block in each ranked
+column; degenerate columns (`cert%` = 0.0 everywhere, and `valid%`/`gap p50` once they
+collapse to 0.0/`inf` at >=40x40) have no meaningful winner and are left unbolded.
+
+| size · | config · | rounds · | p50 (ms) ↓ | p95 (ms) ↓ | RSS (MB) ↓ | valid% ↑ | cert% ↑ | gap p50 ↓ |
+|--------|----------|---------:|-----------:|-----------:|-----------:|---------:|--------:|----------:|
+| 10x10 | D defaults k=0     | 450 | **0.49** | **1.70** | 104 | 83.6 | 0.0 | 34.66 |
+| 10x10 | A defaults B=10    | 450 | 0.67 | 1.86 | **103** | 83.6 | 0.0 | 34.66 |
+| 10x10 | C recommended      | 450 | 1.64 | 2.23 | 104 | 85.6 | 0.0 | **16.01** |
+| 10x10 | B exact B=0 k=0    | 450 | 1.84 | 2.31 | 104 | **86.4** | 0.0 | 33.04 |
+| 20x20 | D defaults k=0     | 450 | **0.67** | **6.36** | 117 | **61.1** | 0.0 | 91.89 |
+| 20x20 | A defaults B=10    | 450 | 1.46 | 7.06 | **116** | **61.1** | 0.0 | 91.89 |
+| 20x20 | B exact B=0 k=0    | 450 | 7.21 | 9.48 | **116** | 58.2 | 0.0 | 89.60 |
+| 20x20 | C recommended      | 450 | 7.71 | 13.37 | 117 | 46.4 | 0.0 | **47.03** |
+| 40x40 | D defaults k=0     | 450 | **2.44** | 30.83 | 170 | 0.0 | 0.0 | inf |
+| 40x40 | A defaults B=10    | 450 | 2.54 | **28.92** | **168** | 0.0 | 0.0 | inf |
+| 40x40 | B exact B=0 k=0    | 450 | 31.02 | 43.83 | **168** | 0.0 | 0.0 | inf |
+| 40x40 | C recommended      | 450 | 34.85 | 45.93 | 170 | 0.0 | 0.0 | inf |
+| 60x60 | A defaults B=10    | 450 | **4.34** | 69.60 | **250** | 0.0 | 0.0 | inf |
+| 60x60 | D defaults k=0     | 450 | 4.42 | **69.54** | 257 | 0.0 | 0.0 | inf |
+| 60x60 | B exact B=0 k=0    | 450 | 64.06 | 107.61 | 251 | 0.0 | 0.0 | inf |
+| 60x60 | C recommended      | 450 | 99.30 | 123.59 | 257 | 0.0 | 0.0 | inf |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 Sizes reference: 10x10 = 360 edges, 20x20 = 1520 edges, 40x40 = 6240 edges, 60x60 = 14160 edges.
 
@@ -194,10 +206,14 @@ expired edges, B=10) but does a **scratch rebuild** on full-refresh rounds
 (`_rebuild_searches` / B=0, which constructs a fresh `DStarLite` — this is the
 "74 ms exact mode" / p95-spike path). They benchmark very differently:
 
-| path | old (graphcore) p50 / p95 ms | FastDStarLite p50 / p95 ms | speedup |
-|------|---:|---:|---:|
-| incremental full-graph update + recompute | 34.3 / 43.1 | 6.6 / 7.7 | **4.9x** (4.8–5.1x) |
-| scratch rebuild (`_rebuild_searches`, B=0) | 16.5 / 17.0 | 1.50 / 1.95 | **11.2x** (8.5–12.1x) |
+Ordered best -> worst by the primary metric **speedup** ↑.
+
+| path · | old (graphcore) p50 / p95 ms ↓ | FastDStarLite p50 / p95 ms ↓ | speedup ↑ |
+|--------|---:|---:|---:|
+| scratch rebuild (`_rebuild_searches`, B=0) | **16.5 / 17.0** | **1.50 / 1.95** | **11.2x** (8.5–12.1x) |
+| incremental full-graph update + recompute | 34.3 / 43.1 | 6.6 / 7.7 | 4.9x (4.8–5.1x) |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 `FastDijkstra` from scratch (target early-exit) lands at **5.0 ms** p50,
 independent of update size — it always recomputes from the source.
@@ -247,11 +263,17 @@ scratch-rebuild and headroom fixes, per-edge staggered pre-widening horizons
 (expiry no longer synchronizes), and a vectorized gather/scatter due-subset
 refresh:
 
-| size | config | p50 | p95 | p99 |
-|---|---|---:|---:|---:|
+Blocked by `size` (sweep axis); within each block ordered best -> worst by **p50** ↓.
+Bold marks the best per size block where there is a competing config (the 40x40 block has a
+single config, so nothing is bolded there).
+
+| size · | config · | p50 ↓ | p95 ↓ | p99 ↓ |
+|--------|----------|------:|------:|------:|
 | 40x40 | recommended | 2.41 ms | 4.79 ms | 5.69 ms |
+| 60x60 | defaults | **2.66 ms** | **11.44 ms** | **12.88 ms** |
 | 60x60 | recommended | 3.68 ms | 12.02 ms | 13.57 ms |
-| 60x60 | defaults | 2.66 ms | 11.44 ms | 12.88 ms |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ~23x p50 and ~9x p95 from the first scale measurement, single CPU core,
 coverage gate 1.0000 after every change; medians 2-4 ms with worst rounds

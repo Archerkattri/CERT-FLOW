@@ -1,7 +1,19 @@
 # CIA vs CERT: path-cost coverage as the calibration->test time gap grows
 
-`scripts/run_cia_comparison.py` full (50 paths, 20 repetitions per gap,
-METR-LA 205-sensor / 888-edge graph). Target 90% coverage (alpha=0.10).
+*CIA is valid only on the exchangeable slice; its coverage collapses at the
+few-hour staleness that dominates real operation, while CERT holds coverage
+at/above target across every gap by paying explicitly in interval width.*
+
+**Reproduce:** `scripts/run_cia_comparison.py`
+
+Full run: 50 paths, 20 repetitions per gap, METR-LA 205-sensor / 888-edge graph.
+Target 90% coverage (alpha=0.10).
+
+> **Finding —** A drift-blind conformal interval (CIA) certifies path cost only
+> while calibration and test are the same time slice. The moment the world
+> moves, its coverage falls below target and never widens to compensate; CERT's
+> `rho * age` drift term keeps coverage at/above target across all gaps, at the
+> cost of much wider intervals.
 
 ## Attribution and license
 
@@ -67,14 +79,22 @@ explicit drift term `rho * age` are built to correct.
 
 ## Result: coverage and median width vs gap
 
-| gap | CIA coverage | CIA 95% CI | CIA med width (s) | CERT coverage | CERT 95% CI | CERT med width (s) |
+Rows follow the controlled `gap` sweep (the independent axis the whole analysis
+reasons about), not a metric ranking. Coverage columns are honesty-bound and
+ranked by **closeness above the target** (over-coverage is wider, not better),
+so the bolded best coverage is the smallest value that still meets/exceeds the
+target; width columns are bolded at their minimum.
+
+| gap · | CIA coverage ↑ | CIA 95% CI · | CIA med width (s) ↓ | CERT coverage ↑ | CERT 95% CI · | CERT med width (s) ↓ |
 |---|---:|---|---:|---:|---|---:|
-| 0   | **0.950** | [0.751, 0.999] | 57    | 1.000 | [0.832, 1.000] | 292   |
-| 1h  | 0.550 | [0.315, 0.769] | 50    | 0.950 | [0.751, 0.999] | 1177  |
-| 3h  | 0.250 | [0.087, 0.491] | 47    | 0.950 | [0.751, 0.999] | 1799  |
-| 6h  | **0.200** | [0.057, 0.437] | 54    | 1.000 | [0.832, 1.000] | 4266  |
-| 12h | 0.350 | [0.154, 0.592] | 49    | 1.000 | [0.832, 1.000] | 6078  |
-| 24h | 0.550 | [0.315, 0.769] | 49    | 1.000 | [0.832, 1.000] | 14238 |
+| 0   | **0.950** | [0.751, 0.999] | 57    | 1.000     | [0.832, 1.000] | **292**   |
+| 1h  | 0.550     | [0.315, 0.769] | 50    | **0.950** | [0.751, 0.999] | 1177  |
+| 3h  | 0.250     | [0.087, 0.491] | **47**    | **0.950** | [0.751, 0.999] | 1799  |
+| 6h  | 0.200     | [0.057, 0.437] | 54    | 1.000     | [0.832, 1.000] | 4266  |
+| 12h | 0.350     | [0.154, 0.592] | 49    | 1.000     | [0.832, 1.000] | 6078  |
+| 24h | 0.550     | [0.315, 0.769] | 49    | 1.000     | [0.832, 1.000] | 14238 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 (20 repetitions per cell; A1-violation rate of the p75 drift model on this
 window: 0.250, consistent with the metr-la doc.)

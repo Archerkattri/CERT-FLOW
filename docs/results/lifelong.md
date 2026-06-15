@@ -1,8 +1,14 @@
 # Tier-L: Lifelong operation — resolving objective O4/H1
 
-`scripts/run_lifelong.py` full (16 seeds x 8 missions x 5 memory variants; 6x6
-bounded drift rho=0.01, eps=5, unknown-terrain start, 50 idle drift rounds
-between missions; first mission excluded — nothing can warm-start it). Raw:
+*Across repeated missions, carried memory re-certifies markedly faster and
+senses far less than a memoryless restart — the objective's system claim,
+vindicated.*
+
+**Reproduce:** `scripts/run_lifelong.py`
+
+Full run (16 seeds x 8 missions x 5 memory variants; 6x6 bounded drift
+rho=0.01, eps=5, unknown-terrain start, 50 idle drift rounds between missions;
+first mission excluded — nothing can warm-start it). Raw:
 `results/lifelong/table.json`.
 
 Within-mission latency was H1's original claim and it failed honestly (D* Lite
@@ -11,13 +17,24 @@ the objective in its intended setting: repeated missions, where a memoryless
 planner re-pays warm-up, re-learns every edge, and re-discovers corridors each
 time.
 
-| variant | cert-rate | rounds->valid | rounds->cert | sense->cert | regret~ |
+> **Finding —** Carried memory re-certifies an epsilon-good route far faster
+> and with far fewer sensing actions than a cold restart, and turns in valid
+> claims from the first round. The trade is honest: stale beliefs certify a
+> slightly worse route (higher regret), but always one provably within eps of
+> optimal.
+
+Rows ordered best -> worst on re-certification speed (`rounds->cert`, the
+headline objective metric).
+
+| variant · | cert-rate ↑ | rounds->valid ↓ | rounds->cert ↓ | sense->cert ↓ | regret~ ↓ |
 |---|---:|---:|---:|---:|---:|
-| memoryless        | 100% | 22.0 | 101.0 | 10.5 | 0.172 |
-| beliefs only      | 100% | 10.0 | 51.0  | 5.2  | 1.082 |
-| calibration only  | 100% | 0.0  | 82.0  | 8.5  | 0.056 |
-| full minus kappa  | 100% | 0.0  | 23.5  | 2.5  | 0.371 |
-| **full memory**   | 100% | **0.0** | **23.5** | **2.5** | 0.562 |
+| full memory       | **100%** | **0.0** | **23.5** | **2.5** | 0.562 |
+| full minus kappa  | **100%** | **0.0** | **23.5** | **2.5** | 0.371 |
+| beliefs only      | **100%** | 10.0    | 51.0    | 5.2     | 1.082 |
+| calibration only  | **100%** | **0.0** | 82.0    | 8.5     | **0.056** |
+| memoryless        | **100%** | 22.0    | 101.0   | 10.5    | 0.172 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ## Findings
 

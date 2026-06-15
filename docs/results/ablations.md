@@ -1,18 +1,31 @@
 # Ablation suite results
 
-`scripts/run_ablations.py` full (20 seeds x 300 rounds, 8x8 bounded drift
-rho=0.02, epsilon=5, alpha'=0.2, eps_tv=1e-4). Raw tables regenerable in
-`results/`. Churn = Fox plan-stability metric (edge symmetric-difference between
+*Component-by-component ablation of CERT-FLOW: kappa hysteresis, lazy pre-widening, maintenance, and the round-robin backstop, scored on certificate fidelity, plan stability (churn), and latency.*
+
+**Reproduce:** `scripts/run_ablations.py`
+
+> **Finding —** kappa hysteresis lost its original latency job to lazy pre-widening, but earns its keep as a churn suppressor at *identical* coverage, valid%, gap, and latency. Maintenance and the backstop look inert until epsilon clears the certificate floor; in the rerun above that floor they behave exactly as the theory predicts.
+
+Setup: full run is 20 seeds x 300 rounds (8x8 bounded drift, rho=0.02,
+epsilon=5, alpha'=0.2, eps_tv=1e-4). Raw tables regenerable in `results/`.
+Churn = Fox plan-stability metric (edge symmetric-difference between
 consecutive incumbents); flap% = fraction of rounds with nonzero churn.
 
-| condition | coverage | valid% | gap~ | churn mean | churn p95 | flap% | p50 ms |
+## Full run (below the certificate floor)
+
+Rows ordered best -> worst by **churn mean** (the metric this suite is built to
+move); coverage and valid% are effectively tied across conditions.
+
+| condition · | coverage ↑ | valid% ↑ | gap~ ↓ | churn mean ↓ | churn p95 ↓ | flap% ↓ | p50 ms ↓ |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| full (kappa on, B=10) | 1.000 | 51.6% | 25.13 | 0.52 | 0  | 3.7%  | 0.70 |
-| no-kappa              | 1.000 | 51.6% | 25.13 | 1.71 | 12 | 17.9% | 0.70 |
-| no-maintenance        | 1.000 | 51.6% | 25.13 | 0.52 | 0  | 3.7%  | 0.71 |
-| B=0 (no pre-widening) | 1.000 | 50.5% | 22.52 | 0.50 | 0  | 3.7%  | 1.29 |
-| B=20                  | 1.000 | 53.5% | 26.89 | 0.59 | 0  | 4.1%  | 0.50 |
-| no-backstop           | 1.000 | 51.6% | 24.50 | 0.46 | 0  | 3.4%  | 0.67 |
+| no-backstop           | **1.000** | 51.6%     | 24.50     | **0.46** | **0**  | **3.4%**  | 0.67 |
+| B=0 (no pre-widening) | **1.000** | 50.5%     | **22.52** | 0.50     | **0**  | 3.7%      | 1.29 |
+| full (kappa on, B=10) | **1.000** | 51.6%     | 25.13     | 0.52     | **0**  | 3.7%      | 0.70 |
+| no-maintenance        | **1.000** | 51.6%     | 25.13     | 0.52     | **0**  | 3.7%      | 0.71 |
+| B=20                  | **1.000** | **53.5%** | 26.89     | 0.59     | **0**  | 4.1%      | **0.50** |
+| no-kappa              | **1.000** | 51.6%     | 25.13     | 1.71     | 12     | 17.9%     | 0.70 |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 ## Findings
 
@@ -41,14 +54,19 @@ consecutive incumbents); flap% = fraction of rounds with nonzero churn.
 
 ## Rerun at eps=12 (above the T2' floor; --eps12, annealed defaults)
 
-| condition | coverage | valid% | cert% | gap~ | churn | flap% |
+Rows ordered best -> worst by **cert%** — the metric that was pinned at zero in
+the run above and only becomes informative once epsilon is attainable.
+
+| condition · | coverage ↑ | valid% ↑ | cert% ↑ | gap~ ↓ | churn ↓ | flap% ↓ |
 |---|---:|---:|---:|---:|---:|---:|
-| full (kappa, B=10) | 1.000 | 94.5% | 4.3%  | 21.93 | 0.26 | 1.6%  |
-| no-kappa           | 1.000 | 94.5% | 4.3%  | 21.93 | 1.76 | 17.8% |
-| no-maintenance     | 1.000 | 94.5% | 3.0%  | 21.93 | 0.25 | 1.6%  |
-| B=0                | 1.000 | 94.9% | 12.4% | 19.60 | 0.22 | 1.3%  |
-| B=20               | 1.000 | 94.2% | 0.6%  | 23.72 | 0.26 | 1.6%  |
-| no-backstop        | 1.000 | 94.5% | 7.0%  | 21.21 | 0.25 | 1.3%  |
+| B=0                | **1.000** | **94.9%** | **12.4%** | **19.60** | **0.22** | **1.3%**  |
+| no-backstop        | **1.000** | 94.5%     | 7.0%      | 21.21     | 0.25     | **1.3%**  |
+| full (kappa, B=10) | **1.000** | 94.5%     | 4.3%      | 21.93     | 0.26     | 1.6%      |
+| no-kappa           | **1.000** | 94.5%     | 4.3%      | 21.93     | 1.76     | 17.8%     |
+| no-maintenance     | **1.000** | 94.5%     | 3.0%      | 21.93     | 0.25     | 1.6%      |
+| B=20               | **1.000** | 94.2%     | 0.6%      | 23.72     | 0.26     | 1.6%      |
+
+*↑ higher is better · ↓ lower is better · · informational · **bold** = best*
 
 With epsilon attainable, the previously-uninformative rows speak:
 maintenance contributes +43% relative certified rounds (4.3 vs 3.0); the
