@@ -165,6 +165,8 @@ machine-readable form.
 Paper preprint (extended version): engrXiv,
 [doi:10.31224/7306](https://doi.org/10.31224/7306).
 
+**Author:** Krishi Attri ([ORCID](https://orcid.org/0009-0005-4695-6467) · [Google Scholar](https://scholar.google.com/citations?hl=en&user=VW1YUNYAAAAJ))
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

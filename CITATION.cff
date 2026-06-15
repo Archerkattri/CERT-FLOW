@@ -30,3 +30,15 @@ abstract: >-
   preprocessing (all-pairs snapshot oracle, certified Contraction
   Hierarchies) behind the certificate so static-speed queries expire the
   instant drift exceeds tolerance.
+preferred-citation:
+  type: article
+  title: "CERT: Certified Route Planning under Drifting Costs"
+  authors:
+    - family-names: Attri
+      given-names: Krishi
+      orcid: https://orcid.org/0009-0005-4695-6467
+      affiliation: "Seoul National University"
+  year: 2026
+  doi: 10.31224/7306
+  url: "https://doi.org/10.31224/7306"
+  notes: "engrXiv preprint, extended version"
