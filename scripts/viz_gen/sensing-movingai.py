@@ -366,11 +366,19 @@ def render(cap):
     band_hi = max(finite_vals) * 1.18
     UB_SENTINEL = 1e6  # any UB at/above this is the unbounded _UB_CAP sentinel
 
-    fig = plt.figure(figsize=(13.0, 6.2))
+    # Fixed best->worst ordering of the four policies by their MEASURED final
+    # regret (lower is better). Used so the regret-race legend is always sorted
+    # winner-first with a "best" tag on the winner; the value shown next to each
+    # label is the LIVE running regret at the current frame (never hardcoded).
+    pol_order = sorted(runs.keys(), key=lambda p: runs[p]["final_regret"])
+    winner = pol_order[0]
+    winner_regret = runs[winner]["final_regret"]
+
+    fig = plt.figure(figsize=(13.0, 6.4))
     gs = fig.add_gridspec(
         2, 2, width_ratios=[1.02, 1.30], height_ratios=[1.0, 1.0],
-        left=0.035, right=0.985, top=0.875, bottom=0.085,
-        wspace=0.20, hspace=0.34,
+        left=0.035, right=0.985, top=0.845, bottom=0.085,
+        wspace=0.22, hspace=0.52,
     )
     gmap = fig.add_subplot(gs[:, 0])   # map spans both rows
     greg = fig.add_subplot(gs[0, 1])   # regret race
@@ -385,7 +393,7 @@ def render(cap):
         gmap.clear(); greg.clear(); gband.clear()
         cf = frame_for(cert, global_r)
         t_now = cf["t"]
-        phase = "sensing (mapping the drifting field)" if global_r < depart \
+        phase = "sensing the drifting field" if global_r < depart \
             else "driving to goal"
 
         # ---------- LEFT: open arena map ----------
@@ -434,14 +442,19 @@ def render(cap):
         gmap.set_xlim(-0.5, cols - 0.5); gmap.set_ylim(rows - 0.5, -0.5)
         gmap.set_title(
             f"DAO arena map (49x49, OPEN) — round {global_r + 1}\n"
-            f"phase: {phase}   |   shade = current true edge cost",
-            fontsize=11.5,
+            f"phase: {phase}  |  shade = true edge cost",
+            fontsize=10.5,
         )
         gmap.legend(loc="lower left", fontsize=8.0, framealpha=0.92,
                     handlelength=1.4)
 
         # ---------- TOP-RIGHT: regret race ----------
-        for pol, run in runs.items():
+        # Plot WINNER-FIRST (pol_order = best->worst by measured final regret) so
+        # the legend rows are ranked top-to-bottom and the ordering is obvious.
+        # Each label carries the LIVE running regret at this frame; the winner is
+        # tagged "<- best". (regret = travel - oracle; lower is better.)
+        for pol in pol_order:
+            run = runs[pol]
             xs = [fr["r"] + 1 for fr in run["rounds"] if fr["r"] <= global_r]
             ys = [fr["regret"] for fr in run["rounds"] if fr["r"] <= global_r]
             if not xs:
@@ -452,23 +465,34 @@ def render(cap):
             if last_run_r < global_r:
                 xs = xs + [global_r + 1]
                 ys = ys + [run["rounds"][-1]["regret"]]
-            lw = 3.0 if pol == "cert" else 1.9
+            cur = ys[-1]  # live running regret at this frame (measured)
+            tag = "  <- best" if pol == winner else ""
+            label = f"{POL_LABEL[pol]}  ({cur:+.2f}){tag}"
+            lw = 3.2 if pol == winner else 1.9
             greg.plot(xs, ys, "-", color=POL_COLOR[pol], lw=lw,
-                      label=POL_LABEL[pol], zorder=(5 if pol == "cert" else 3))
+                      label=label, zorder=(5 if pol == winner else 3))
             greg.plot(xs[-1], ys[-1], "o", color=POL_COLOR[pol], ms=6,
                       markeredgecolor="white", mew=0.8, zorder=6)
         greg.axhline(0.0, color=BLK, lw=1.0, ls=":", alpha=0.7)
         if global_r >= depart:
             greg.axvline(depart + 1, color="0.5", lw=1.0, ls="--", alpha=0.7)
-            greg.text(depart + 1, reg_max * 0.96, " depart (budget spent)",
-                      fontsize=7.5, color="0.4", va="top", ha="left")
+            # anchor just LEFT of the depart line, high up — the diverging fan is
+            # to the RIGHT and the flat pre-departure curves are well below here
+            greg.text(depart - 1, reg_max * 0.97, "depart\n(budget spent) ",
+                      fontsize=7.5, color="0.4", va="top", ha="right")
         greg.set_xlim(0, last_r + 1)
         greg.set_ylim(reg_min, reg_max)
-        greg.set_ylabel("travel regret vs oracle", fontsize=9.5)
+        # directionality cue lives in the axis label, never over the data
+        greg.set_ylabel("travel regret vs oracle  (↓ lower is better)",
+                        fontsize=9.5)
         greg.set_title(
-            "Regret race: same map, same drift, same budget — "
-            "lower is better", fontsize=11)
-        greg.legend(loc="upper left", fontsize=8.0, framealpha=0.92, ncol=2)
+            f"Regret race — {POL_LABEL[winner].split(' (')[0]} wins: "
+            f"{winner_regret:.2f} regret (lowest of 4)",
+            fontsize=10.5, color=POL_COLOR[winner], fontweight="bold")
+        # legend gets its own clear space in the upper-left (curves are flat near
+        # 0 there until departure; the diverging fan is on the far right)
+        greg.legend(loc="upper left", fontsize=7.6, framealpha=0.94, ncol=1,
+                    handlelength=1.6, borderpad=0.5, labelspacing=0.35)
         greg.tick_params(labelsize=8.5)
         greg.grid(True, alpha=0.18)
 
@@ -498,10 +522,12 @@ def render(cap):
         if len(wu):
             gband.axvspan(wu.min() - 0.5, wu.max() + 0.5,
                           color="0.85", alpha=0.6, lw=0)
-            gband.text((wu.min() + wu.max()) / 2,
-                       band_lo + 0.05 * (band_hi - band_lo),
+            # label low and right-aligned at the span's right edge, but never
+            # left of the legend's safe zone (lower-left) so the two never collide
+            wu_x = max(wu.max() - 1, 0.42 * (last_r + 1))
+            gband.text(wu_x, band_lo + 0.05 * (band_hi - band_lo),
                        "warm-up: no claim", fontsize=8.5, color="0.35",
-                       va="bottom", ha="center")
+                       va="bottom", ha="right")
         # sound certified LOWER bound on OPT (the meaningful guarantee here)
         vx = xs[valid]; vlb = clb[valid]
         if len(vx):
@@ -518,11 +544,14 @@ def render(cap):
             ux = xs[ub_unb]
             gband.plot(ux, np.full(len(ux), band_hi * 0.95), "^",
                        color="0.5", ms=4, zorder=4, clip_on=True)
-            # single clean caption anchored to the claim region's left edge
+            # caption sits in the empty pocket ABOVE the (descending) OPT curve,
+            # to the LEFT of the up-arrow row; the arrow points up-right to the
+            # arrows. This region holds no curve/legend/other label.
+            tx = max(ux.min() - 0.42 * (last_r + 1), 6)
             gband.annotate(
                 "UB -> unbounded\n(route unsensed)",
                 xy=(ux.min(), band_hi * 0.95),
-                xytext=(max(ux.min() - 58, 4), band_hi * 0.62),
+                xytext=(tx, band_hi * 0.88),
                 fontsize=7.6, color="0.4", ha="left", va="center",
                 arrowprops=dict(arrowstyle="->", color="0.55", lw=0.9))
         # genuine violations ONLY: a claim WAS made and OPT fell outside [LB,UB]
@@ -535,15 +564,20 @@ def render(cap):
         gband.set_xlim(0, last_r + 1)
         gband.set_ylim(band_lo, band_hi)
         gband.set_xlabel("round", fontsize=9.5)
-        gband.set_ylabel("path cost (pos->goal)", fontsize=9.5)
+        gband.set_ylabel("path cost (pos->goal)  (↓ lower is better)",
+                         fontsize=9.5)
         cov = cf["cert_cov"]
         n_valid = cf["cert_valid_count"]
         if n_valid > 0:
-            cov_txt = (f"sound, LB<=OPT<=UB on {cov:.0%} of {n_valid} claims "
-                       f"(loose: eps=8 unattainable here)")
+            # coverage is a validity metric: higher is better (cue: ↑). Two
+            # short lines so the full caveat fits without running off the panel.
+            cov_txt = (
+                f"CERT certificate: sound — LB<=OPT<=UB on {cov:.0%} of "
+                f"{n_valid} claims (coverage ↑ better)\n"
+                f"but loose, not tight: eps=8 unattainable here (docs finding 5)")
         else:
-            cov_txt = "no claim yet (warm-up)"
-        gband.set_title("CERT certificate: " + cov_txt, fontsize=9.5)
+            cov_txt = "CERT certificate: no claim yet (warm-up)"
+        gband.set_title(cov_txt, fontsize=9.0)
         gband.legend(loc="lower left", fontsize=7.6, framealpha=0.92,
                      bbox_to_anchor=(0.012, 0.04))
         gband.tick_params(labelsize=8.5)
@@ -551,8 +585,9 @@ def render(cap):
 
         fig.suptitle(
             "Sensing that pays on a real open map: WHERE you sense beats how "
-            "much  (DAO arena, drift rho=0.02, one seed)",
-            fontsize=12.5, fontweight="bold", x=0.5, y=0.966)
+            "much — CERT wins (lowest regret "
+            f"{winner_regret:.2f})\nDAO arena 49x49, drift rho=0.02, one seed",
+            fontsize=12.0, fontweight="bold", x=0.5, y=0.975)
         return []
 
     anim = FuncAnimation(fig, draw, frames=frame_rounds, interval=160)

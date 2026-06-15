@@ -27,6 +27,16 @@ claim that WAS made (CIA's exchangeability breaking), never a mislabelled
 buffer-warm-up. That distinction (rule 2) is honoured by not drawing any
 warm-up shading and by stating it on the figure.
 
+CLARITY (does not touch the measured numbers)
+----------------------------------------------
+Each metric carries a directionality cue in its axis label -- coverage is
+"(↑ higher is better)", width is "(↓ lower is better)", and the x-axis notes
+"(→ staler)". The two methods are ordered best→worst in each legend (CERT
+first), the coverage winner is tagged "✓ holds target" and the width trade-off
+is labelled on both series, and the main title states the outcome outright.
+None of this changes what is drawn: the y-values are still the measured
+coverage/width returned by capture().
+
 Output (viz_out/staleness-metrla/):
   staleness-metrla.mp4   (FFMpegWriter; falls back to GIF if unavailable)
   staleness-metrla.gif   (looping web embed)
@@ -171,13 +181,14 @@ def render(data):
     wmax = max(np.nanmax(cia["medw"]), np.nanmax(cert["medw"]))
     wmin = min(np.nanmin(cia["medw"]), np.nanmin(cert["medw"]))
 
-    fig = plt.figure(figsize=(12.8, 6.2))
+    fig = plt.figure(figsize=(13.2, 6.6))
     gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.0])
     axc = fig.add_subplot(gs[0, 0])    # coverage vs gap
     axw = fig.add_subplot(gs[0, 1])    # width vs gap (log)
-    # explicit margins: reserve a clean top band for the title + subtitle so
-    # nothing collides with the per-axis titles (legibility, rule 6)
-    fig.subplots_adjust(left=0.075, right=0.985, top=0.80, bottom=0.115,
+    # explicit margins: reserve a generous top band so the main title, the
+    # one-line subtitle AND the per-axis titles each get their own clear
+    # horizontal strip with no vertical collision (legibility, rule 6)
+    fig.subplots_adjust(left=0.078, right=0.985, top=0.745, bottom=0.115,
                         wspace=0.235)
 
     n_show = G                         # reveal gaps progressively, then hold
@@ -186,105 +197,147 @@ def render(data):
 
     def panel_coverage(upto):
         axc.clear()
-        # 90% target band + the conformal "valid" half-plane shading
+        # 90% target band + the conformal "valid" half-plane shading. Anchor the
+        # label at the LEFT edge, where the curves are at ~88-100% and there is
+        # no marker directly on the line, so it never sits on a data point.
         axc.axhspan(target, 1.0, color=BLUE, alpha=0.05, lw=0)
         axc.axhline(target, color=BLK, ls="--", lw=1.6, zorder=2)
-        axc.text(G - 1.0, target + 0.012, "90% target", fontsize=11,
-                 color=BLK, ha="right", va="bottom")
+        # label the dashed line just below it, at mid-axis where CERT is pinned
+        # to 100% (above) and CIA has collapsed (well below) -- clear of both.
+        axc.text(2.5, target - 0.03, "90% target", fontsize=10.5,
+                 color=BLK, ha="center", va="top")
 
         xi = x[:upto]
+        # Draw CERT first so its label leads the legend (winner -> top), but
+        # keep CIA visually on top via zorder so its collapse stays readable.
+        kl = np.clip(cert["cov"][:upto] - cert["lo"][:upto], 0, None)
+        ku = np.clip(cert["hi"][:upto] - cert["cov"][:upto], 0, None)
+        axc.errorbar(xi, cert["cov"][:upto], yerr=[kl, ku], fmt="s-",
+                     color=BLUE, lw=3, ms=9, capsize=4, mew=1.5,
+                     ecolor=SKY, elinewidth=1.4, zorder=6,
+                     label="CERT (drift-aware)  ✓ holds target")
         # CIA -- measured coverage with Clopper-Pearson 95% CI
         cl = np.clip(cia["cov"][:upto] - cia["lo"][:upto], 0, None)
         cu = np.clip(cia["hi"][:upto] - cia["cov"][:upto], 0, None)
         axc.errorbar(xi, cia["cov"][:upto], yerr=[cl, cu], fmt="o-",
                      color=ORANGE, lw=3, ms=9, capsize=4, mew=1.5,
                      ecolor=ORANGE, elinewidth=1.4, zorder=5,
-                     label="CIA (exchangeable)")
-        # CERT
-        kl = np.clip(cert["cov"][:upto] - cert["lo"][:upto], 0, None)
-        ku = np.clip(cert["hi"][:upto] - cert["cov"][:upto], 0, None)
-        axc.errorbar(xi, cert["cov"][:upto], yerr=[kl, ku], fmt="s-",
-                     color=BLUE, lw=3, ms=9, capsize=4, mew=1.5,
-                     ecolor=SKY, elinewidth=1.4, zorder=6,
-                     label="CERT (drift-aware)")
+                     label="CIA (exchangeable)  collapses")
 
-        # call out the current frontier gap
+        # call out the current frontier gap. The CIA curve lives in the bottom
+        # half (it has collapsed) and CERT is pinned at the top, so the band
+        # around y~0.55-0.70 on the LEFT is empty in every frame -- anchor the
+        # callout there and let the arrow reach the (low) frontier marker. This
+        # keeps it clear of the upper-right legend for all gaps.
         j = upto - 1
         if j >= 1:                      # not the static gap=0 control
             axc.annotate(
                 f"CIA {cia['cov'][j]:.0%}\nat gap {GAP_LABELS[j]}",
                 xy=(j, cia["cov"][j]),
-                xytext=(j - 0.05, min(0.62, cia["cov"][j] + 0.30)),
-                fontsize=10.5, color=ORANGE, ha="center", va="bottom",
-                arrowprops=dict(arrowstyle="->", color=ORANGE, lw=1.6))
+                xytext=(0.62, 0.585), textcoords=axc.transAxes,
+                fontsize=10.5, color=ORANGE, ha="center", va="center",
+                arrowprops=dict(arrowstyle="->", color=ORANGE, lw=1.6,
+                                connectionstyle="arc3,rad=0.0"))
 
-        axc.set_xlim(-0.4, G - 0.6)
-        axc.set_ylim(-0.03, 1.05)
+        axc.set_xlim(-0.45, G - 0.55)
+        axc.set_ylim(-0.03, 1.08)
         axc.set_xticks(x)
         axc.set_xticklabels(GAP_LABELS, fontsize=12)
         axc.set_yticks(np.arange(0, 1.01, 0.2))
         axc.set_yticklabels([f"{v:.0%}" for v in np.arange(0, 1.01, 0.2)],
                             fontsize=11)
-        axc.set_xlabel("calibration -> test gap", fontsize=13)
-        axc.set_ylabel("coverage of true path cost", fontsize=13)
-        axc.set_title("Coverage collapses without a drift model",
-                      fontsize=14, pad=8)
+        axc.set_xlabel("calibration → test gap   (→ staler)",
+                       fontsize=12.5)
+        axc.set_ylabel("coverage of true path cost   (↑ higher is better)",
+                       fontsize=12.5)
+        axc.set_title("Coverage: CERT holds 90%+, CIA collapses",
+                      fontsize=13.5, pad=8)
         axc.grid(True, axis="y", alpha=0.25)
-        axc.legend(loc="lower left", fontsize=11, framealpha=0.95)
+        # No per-axis legend: a single shared legend is drawn in the cleared
+        # top band (see draw()), so neither panel's legend can sit on a curve.
 
     def panel_width(upto):
         axw.clear()
         xi = x[:upto]
-        axw.plot(xi, cia["medw"][:upto], "o-", color=ORANGE, lw=3, ms=9,
-                 mew=1.5, zorder=5, label="CIA median width")
+        # CERT first to keep legend order consistent with the coverage panel.
         axw.plot(xi, cert["medw"][:upto], "s-", color=BLUE, lw=3, ms=9,
-                 mew=1.5, zorder=6, label="CERT median width")
+                 mew=1.5, zorder=6, label="CERT width  (the cost of validity)")
+        axw.plot(xi, cia["medw"][:upto], "o-", color=ORANGE, lw=3, ms=9,
+                 mew=1.5, zorder=5, label="CIA width  (narrow but invalid)")
         axw.set_yscale("log")
-        axw.set_xlim(-0.4, G - 0.6)
-        axw.set_ylim(wmin * 0.6, wmax * 1.8)
+        axw.set_xlim(-0.45, G - 0.55)
+        # extra headroom at top for the CERT label and legend; the two curves
+        # are ~2 decades apart so the mid-band is empty for the CIA label.
+        axw.set_ylim(wmin * 0.42, wmax * 2.6)
         axw.set_xticks(x)
         axw.set_xticklabels(GAP_LABELS, fontsize=12)
-        axw.set_xlabel("calibration -> test gap", fontsize=13)
-        axw.set_ylabel("interval width  (seconds, log scale)", fontsize=13)
-        axw.set_title("CERT pays for validity in width; CIA does not widen",
-                      fontsize=14, pad=8)
+        axw.set_xlabel("calibration → test gap   (→ staler)",
+                       fontsize=12.5)
+        axw.set_ylabel("interval width, seconds, log   (↓ lower is better)",
+                       fontsize=12.5)
+        axw.set_title("Width: CERT widens to stay valid; CIA stays narrow",
+                      fontsize=13.5, pad=8)
         axw.grid(True, which="both", alpha=0.22)
-        axw.legend(loc="upper left", fontsize=11, framealpha=0.95)
+        # width panel uses the same shared top-band legend (the four series map
+        # 1:1 by colour: CERT = blue, CIA = orange).
 
         j = upto - 1
-        # annotate frozen CIA width + growing CERT width at the frontier.
-        # keep labels inside the axes: at the right edge, place them to the
-        # left of the marker so they are never clipped.
         last = j == G - 1
-        ha = "right" if last else "center"
-        dx = -0.12 if last else 0.0
-        axw.annotate(f"{cia['medw'][j]:.0f} s",
+        # CIA width label: place it ABOVE the (flat, low) CIA curve, in the
+        # empty band between the two curves -- never on the x-tick row below.
+        cia_ha = "right" if last else "center"
+        cia_dx = -0.12 if last else 0.0
+        axw.annotate(f"CIA {cia['medw'][j]:.0f} s",
                      xy=(j, cia["medw"][j]),
-                     xytext=(j + dx, cia["medw"][j] * 0.42),
-                     fontsize=10.5, color=ORANGE, ha=ha, va="top")
+                     xytext=(j + cia_dx, cia["medw"][j] * 2.6),
+                     fontsize=10.5, color=ORANGE, ha=cia_ha, va="bottom")
+        # CERT width label: the curve rises monotonically, so the band to the
+        # LOWER-RIGHT of each marker is empty (the next point is higher). Put
+        # the label there. On the final (top-right) marker there is no room to
+        # the right, so place it ABOVE the marker -- it is the highest point and
+        # the legend sits at the upper-LEFT, so the upper-right stays clear.
         if j >= 1:
-            axw.annotate(f"CERT {cert['medw'][j]:.0f} s",
-                         xy=(j, cert["medw"][j]),
-                         xytext=(j + dx, cert["medw"][j] * 1.45),
-                         fontsize=10.5, color=BLUE, ha=ha, va="bottom")
+            if last:
+                axw.annotate(f"CERT {cert['medw'][j]:.0f} s",
+                             xy=(j, cert["medw"][j]),
+                             xytext=(j - 0.06, cert["medw"][j] * 1.55),
+                             fontsize=10.5, color=BLUE, ha="right",
+                             va="bottom")
+            else:
+                axw.annotate(f"CERT {cert['medw'][j]:.0f} s",
+                             xy=(j, cert["medw"][j]),
+                             xytext=(j + 0.14, cert["medw"][j] * 0.62),
+                             fontsize=10.5, color=BLUE, ha="left", va="top")
 
     def draw(upto):
-        # clear the whole figure region each frame (titles + axes) so the
-        # progressive reveal never leaves stale text behind
+        # clear the whole figure region each frame (titles, subtitle, shared
+        # legend) so the progressive reveal never leaves stale artists behind
         for t in list(fig.texts):
             t.remove()
+        for lg in list(fig.legends):
+            lg.remove()
         panel_coverage(upto)
         panel_width(upto)
+        # Main title states the winner outright (rule: who wins, in the title).
         fig.suptitle(
-            "Exchangeability collapse under staleness  -  "
-            "METR-LA travel-time path costs",
-            fontsize=16, fontweight="bold", y=0.975)
+            "Under staleness, CERT holds 90%+ coverage while CIA collapses"
+            "  —  METR-LA travel-time path costs",
+            fontsize=15.5, fontweight="bold", y=0.965)
+        # One-line subtitle, kept on a single row in its own clear strip so it
+        # never reaches down onto the per-axis titles below.
         fig.text(
-            0.5, 0.895,
-            "Measured CIA vs CERT, 90% target.  CIA covers only on the "
-            "static slice it assumes;\nCERT's  rho x age  widening holds "
-            "coverage as the calibration map goes stale.",
-            fontsize=12, ha="center", va="top", color="0.25")
+            0.5, 0.885,
+            "Measured CIA vs CERT at the 90% target as the calibration→test "
+            "gap grows.  CERT trades a wider interval for validity; "
+            "CIA stays narrow but stops covering.",
+            fontsize=11, ha="center", va="center", color="0.25")
+        # ONE shared legend in the cleared top band -- removes every
+        # legend/curve collision in both panels at once. Ordered best→worst
+        # (CERT first), with the winner tagged; colours map 1:1 to both panels.
+        handles, labels = axc.get_legend_handles_labels()
+        fig.legend(handles, labels, loc="center", bbox_to_anchor=(0.5, 0.815),
+                   ncol=2, fontsize=11, framealpha=0.96,
+                   columnspacing=2.4, handletextpad=0.6, borderpad=0.7)
         return []
 
     # ---- animation ----

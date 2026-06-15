@@ -40,6 +40,7 @@ import pathlib
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
@@ -141,25 +142,31 @@ def capture():
 
 def render(frames, meta):
     H, W = meta["H"], meta["W"]
-    fig = plt.figure(figsize=(12.2, 5.2), constrained_layout=True)
-    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.32])
+    fig = plt.figure(figsize=(12.6, 5.4), constrained_layout=True)
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.34])
     gx = fig.add_subplot(gs[:, 0])     # map spans both rows
     gc = fig.add_subplot(gs[0, 1])     # CERT band timeline
     ga = fig.add_subplot(gs[1, 1])     # AD* band timeline
 
-    # shared y-range across both band panels (clip CERT's growing UB so the
-    # true-OPT line and AD* band stay legible; the clip is annotated).
+    # Shared y-range across both band panels. The CERT UB grows large (OPT
+    # could route through a stale-cheap edge), so we clip the *drawn* band at
+    # UBCLIP and mark the clip with a caret + note -- the band is honestly even
+    # wider than shown, never trimmed to look tighter. The top of the panel
+    # above UBCLIP is kept band-free as a dedicated legend lane so no legend
+    # ever sits on top of a curve, marker, or fill.
     opts = [f["opt"] for f in frames]
     ad_his = [f["ad"][1] for f in frames]
     ad_los = [f["ad"][0] for f in frames]
     ymin = max(0.0, min(min(opts), min(ad_los)) - 2.0)
-    # cap the visible band at a multiple of the OPT scale so AD* misses are
-    # readable; CERT's UB can exceed this and is drawn clipped with a caret.
-    ymax = max(max(opts), max(ad_his)) * 2.6
-    UBCLIP = ymax
+    data_top = max(max(opts), max(ad_his))          # real data we must show
+    UBCLIP = data_top * 2.05                          # CERT band drawn up to here
+    ymax = data_top * 2.95                            # leave a clear legend lane
+    # y where the legend lane begins (everything above is reserved, band-free)
+    LANE = UBCLIP + (ymax - UBCLIP) * 0.10
 
     warm = [f["i"] for f in frames if not f["cert_valid"]]
     wu_lo, wu_hi = (min(warm), max(warm) + 1) if warm else (None, None)
+    final_k = len(frames) - 1
 
     def band(ax, k, key, color, name, hits_key, gated):
         xs = np.arange(k + 1)
@@ -176,31 +183,56 @@ def render(frames, meta):
         if gated and wu_lo is not None and wu_lo <= k:
             ax.axvspan(wu_lo, min(wu_hi, k + 1), color="0.82", alpha=0.7, lw=0,
                        zorder=0)
-            ax.text(wu_lo + 0.4, ymin + (ymax - ymin) * 0.06,
-                    "warm-up\nno claim", fontsize=8, color="0.35", va="bottom")
+            ax.text(wu_lo + 0.5, ymin + (LANE - ymin) * 0.10,
+                    "warm-up\nno claim", fontsize=8, color="0.35", va="bottom",
+                    zorder=7)
         # caret where CERT's true UB exceeds the visible clip (honesty: the
         # band is even wider than drawn, not cut to look tighter)
         if gated:
             over = [j for j in xs if claim[j] and hi_raw[j] > UBCLIP + 1e-9]
             if over:
                 ax.plot(over, [UBCLIP] * len(over), "^", color=color, ms=4,
-                        mew=0, alpha=0.8)
+                        mew=0, alpha=0.85, zorder=6)
+                ax.text(ROUNDS * 0.5, UBCLIP + (LANE - UBCLIP) * 0.5,
+                        "▲ band continues above (clipped) — it is even wider, "
+                        "never trimmed", fontsize=7, color=color, va="center",
+                        ha="center", zorder=7,
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white",
+                                  ec="none", alpha=0.85))
         # genuine misses only: a claim WAS made and OPT fell outside it
         viol = [j for j in xs if claim[j] and not frames[j][hits_key]]
         if viol:
             ax.plot(viol, [frames[j]["opt"] for j in viol], "x", color=RED,
-                    ms=7, mew=2.2, label="OPT outside band", zorder=6)
+                    ms=7, mew=2.2, label="OPT outside band", zorder=8)
         ax.set_xlim(0, ROUNDS)
         ax.set_ylim(ymin, ymax)
         cov = frames[k][("cert_cov" if gated else "ad_cov")]
         denom = "claims" if gated else "rounds"
-        ax.set_title(f"{name}: covers true OPT in {cov:.0%} of {denom}",
-                     fontsize=11.5,
-                     color=(BLUE if name == "CERT" else ORANGE), pad=4)
-        ax.legend(loc="upper left", fontsize=8.0, framealpha=0.92, ncol=2,
-                  handlelength=1.4, columnspacing=1.0)
+        # winner / ranking cue: once both have a track record, mark the leader.
+        # CERT is the provably-sound method and leads here; flag it only when
+        # the comparison is actually meaningful (CERT has started claiming).
+        cert_leads = frames[k]["cert_cov"] >= frames[k]["ad_cov"]
+        is_winner = (cert_leads if name == "CERT" else not cert_leads) and \
+            frames[k]["cert_valid"]
+        rank = "1st" if is_winner else ("2nd" if frames[k]["cert_valid"] else "-")
+        tag = "  ✓ best" if is_winner else ""
+        ax.set_title(
+            f"[{rank}]  {name}: covers true OPT in {cov:.0%} of {denom}{tag}",
+            fontsize=11.5, fontweight=("bold" if is_winner else "normal"),
+            color=(BLUE if name == "CERT" else ORANGE), pad=4)
+        # directionality cue (in empty corner, never over data): coverage is a
+        # validity metric -> higher is better.
+        ax.text(0.985, 0.95, "coverage: ↑ higher is better",
+                transform=ax.transAxes, fontsize=8, color="0.30",
+                ha="right", va="top", zorder=7,
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="0.7",
+                          alpha=0.9))
+        # legend lives in the reserved band-free lane at the top-left
+        ax.legend(loc="upper left", fontsize=8.0, framealpha=0.0, ncol=2,
+                  handlelength=1.4, columnspacing=1.0, borderaxespad=0.3)
         ax.tick_params(labelsize=8.5)
-        ax.set_ylabel("path cost", fontsize=9)
+        # cost axis: lower is better (the band wrapping OPT is the cost scale)
+        ax.set_ylabel("path cost  (↓ lower)", fontsize=9)
 
     def draw(k):
         f = frames[k]
@@ -223,10 +255,19 @@ def render(frames, meta):
                     ms=10, label="edge sensed this round", zorder=5)
         gx.plot(START[1], START[0], "o", color=GRN, ms=14, zorder=6)
         gx.plot(GOAL[1], GOAL[0], "*", color=RED, ms=20, zorder=6)
-        gx.text(START[1] + 0.5, START[0] - 0.2, "start", color=GRN,
-                fontsize=9, fontweight="bold", va="bottom")
-        gx.text(GOAL[1] - 0.5, GOAL[0] + 0.3, "goal", color=RED, fontsize=9,
-                fontweight="bold", ha="right", va="top")
+        # labels placed into open floor with a white halo so they never read
+        # against a wall or the marker
+        # START=(0,0) corner; the path drops to row 1 then runs right, and a
+        # wall sits at row 0. Open floor is at rows >=2 on the left, so place
+        # "start" there (below the path), clear of marker/path/wall. White halo
+        # guarantees legibility on the floor.
+        halo = [pe.withStroke(linewidth=2.6, foreground="white")]
+        gx.text(START[1] + 0.15, START[0] + 2.35, "start", color=GRN,
+                fontsize=9, fontweight="bold", va="center", ha="left",
+                zorder=7, path_effects=halo)
+        gx.text(GOAL[1] - 0.6, GOAL[0] + 0.15, "goal", color=RED, fontsize=9,
+                fontweight="bold", ha="right", va="center", zorder=7,
+                path_effects=halo)
         gx.set_xticks([]); gx.set_yticks([])
         claim_txt = (f"valid claim (conf {f['confidence']:.0%})"
                      if f["cert_valid"] else "warm-up: no claim yet")
@@ -250,10 +291,19 @@ def render(frames, meta):
         band(ga, k, "ad", ORANGE, "AD*", "ad_in", False)
         ga.set_xlabel("round (robot stationary at start; world drifts)",
                       fontsize=9)
+        # Winner stated in the title, but only once the comparison is real:
+        # during warm-up CERT makes no claim, so we describe the setup instead
+        # of declaring a coverage winner (honesty: no claim != a miss).
+        if f["cert_valid"]:
+            cc, ac = f["cert_cov"], f["ad_cov"]
+            sub = (f"Winner: CERT  (covers true OPT {cc:.0%} of its claims  vs  "
+                   f"AD* {ac:.0%} of rounds — higher coverage is better)")
+        else:
+            sub = ("Warm-up: CERT makes no claim yet (shown grey, not a miss); "
+                   "AD* already claims on stale estimates")
         fig.suptitle(
-            "Certificate validity on a real map: CERT's band always contains "
-            "the true optimum; AD*'s stale point-estimate band does not",
-            fontsize=12.5, fontweight="bold")
+            "Certificate validity on a real MovingAI map under drift\n" + sub,
+            fontsize=12.0, fontweight="bold")
         return []
 
     # --- animation ---

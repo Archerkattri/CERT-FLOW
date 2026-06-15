@@ -273,6 +273,15 @@ def render(per_policy, horizon, n_seeds):
     ymax = max(ymax, max(d["mean_curve"].max() for d in per_policy.values())) * 1.12
     ymax = max(ymax, 1.0)
 
+    # final mean regret per policy (MEASURED) -> ranking best(lowest)->worst,
+    # and the winner, used to state the result in the title and mark the bars.
+    final_mean = {lab: float(per_policy[lab]["finals"].mean()) for lab in labels}
+    rank_order = sorted(labels, key=lambda lab: final_mean[lab])  # best -> worst
+    winner = rank_order[0]
+    runner_up = rank_order[1]
+    win_ratio = (final_mean[runner_up] / final_mean[winner]
+                 if final_mean[winner] > 1e-9 else float("nan"))
+
     # representative-seed grid run drives the grid panel
     grid_geom = per_policy[cert_label]["grid_run"]["geom"]
     n_grid = len(grid_geom)
@@ -302,12 +311,15 @@ def render(per_policy, horizon, n_seeds):
     gr = fig.add_subplot(gs[0, 1])     # running-regret curves
     gb = fig.add_subplot(gs[1, 1])     # live bar chart of current mean regret
 
+    # state WHO WINS, with the measured numbers, right in the title (kept short
+    # enough to never clip at this figure width).
     fig.suptitle(
-        "Sensing that pays  -  same unknown drifting terrain, same sensing budget "
-        f"(B={BUDGET:.0f} obs)\n"
-        "running travel-regret vs a clairvoyant oracle  -  gap-directed (CERT) "
-        "sensing converges near-oracle; others wander",
-        fontsize=12.5, fontweight="bold",
+        "Sensing that pays  -  same unknown drifting terrain, same budget "
+        f"(B={BUDGET:.0f} obs);  metric = travel-regret, lower is better\n"
+        f"WINNER: {short[winner]} -- lowest regret ({final_mean[winner]:.2f}), "
+        f"{win_ratio:.1f}x better than next-best {short[runner_up]} "
+        f"({final_mean[runner_up]:.2f})",
+        fontsize=12.0, fontweight="bold",
     )
 
     def draw_regret(t):
@@ -318,15 +330,23 @@ def render(per_policy, horizon, n_seeds):
         # honesty band: pre-departure, certify-then-go has paid NO travel cost
         # (regret 0) because it has not moved -- a SENSING phase, not a coverage
         # claim and not a violation. drive-blind has no such band (departs at r1).
+        # Place the note in the EMPTY gap inside the grey band, between the
+        # zero-regret lines (CERT/random/max-age) and the drive-blind plateau,
+        # so it never touches a curve, the rising right-side band, or the legend.
         if depart > 1:
             gr.axvspan(0, depart, color="0.88", alpha=0.6, lw=0, zorder=0)
-            gr.text(depart * 0.5, ymax * 0.52,
-                    "sensing phase\ncertify-then-go is mapping,\n"
-                    "not moving yet\n(regret 0 = no travel paid,\n"
-                    "NOT a coverage claim)",
-                    fontsize=7.6, color="0.32", ha="center", va="center", zorder=1)
+            # drive-blind's plateau within the sensing window = the only nonzero
+            # curve there; sit comfortably below it (and above 0).
+            blind_plateau = float(per_policy[labels[3]]["mean_curve"]
+                                  [max(0, depart - 1)])
+            note_y = min(blind_plateau * 0.5, ymax * 0.20)
+            gr.text(depart * 0.5, note_y,
+                    "sensing phase: certify-then-go is mapping, not moving yet\n"
+                    "(regret 0 = no travel paid, NOT a coverage claim)",
+                    fontsize=7.3, color="0.28", ha="center", va="center",
+                    zorder=1, linespacing=1.3)
         gr.axhline(0.0, color=BLK, lw=1.6, ls="--", zorder=2,
-                   label="clairvoyant oracle (0)")
+                   label="clairvoyant oracle (regret 0)")
         for _, _, _, lab, _ in POLICIES:
             d = per_policy[lab]
             c = d["color"]
@@ -343,7 +363,9 @@ def render(per_policy, horizon, n_seeds):
                         zorder=5, mec="white", mew=0.8)
         gr.set_xlim(0, horizon)
         gr.set_ylim(-ymax * 0.06, ymax)
-        gr.set_ylabel("running travel-regret\n(lower = closer to oracle)",
+        # directionality cue lives IN the axis label (never over data):
+        gr.set_ylabel("running travel-regret\n"
+                      r"$\downarrow$ lower is better (closer to oracle)",
                       fontsize=9.5)
         gr.set_xlabel("replanning round", fontsize=9.5)
         gr.set_title(f"Regret accumulating over rounds  (mean of {n_seeds} seeds; "
@@ -355,25 +377,46 @@ def render(per_policy, horizon, n_seeds):
     def draw_bars(t):
         gb.clear()
         kk = min(t, horizon - 1)
-        vals = [per_policy[lab]["mean_curve"][kk] for lab in labels]
-        finals = [float(per_policy[lab]["finals"].mean()) for lab in labels]
-        colors = [per_policy[lab]["color"] for lab in labels]
-        ypos = np.arange(len(labels))[::-1]
+        # rank bars best (lowest regret) -> worst by the CURRENT mean value, so
+        # the ladder is always visually monotonic; the winner is tagged.
+        cur = {lab: float(per_policy[lab]["mean_curve"][kk]) for lab in labels}
+        order = sorted(labels, key=lambda lab: cur[lab])         # best -> worst
+        vals = [cur[lab] for lab in order]
+        finals = [final_mean[lab] for lab in order]
+        colors = [per_policy[lab]["color"] for lab in order]
+        # top row = best: place rank 1 at the TOP (highest y)
+        ypos = np.arange(len(order))[::-1]
         gb.barh(ypos, vals, color=colors, alpha=0.92, height=0.62, zorder=3)
-        # tick where each policy's FINAL mean regret lands
+        # tick where each policy's FINAL (episode-end) mean regret lands
         for y, fv in zip(ypos, finals):
             gb.plot([fv, fv], [y - 0.32, y + 0.32], color=BLK, lw=1.5,
                     alpha=0.6, zorder=4)
-        for y, v in zip(ypos, vals):
-            gb.text(v + ymax * 0.012, y, f"{v:.2f}", va="center", ha="left",
-                    fontsize=9.0, fontweight="bold")
+        xr = ymax * 1.04                                          # x right edge
+        # "✓ best at finish" tags the MEASURED episode-end winner (a stable fact),
+        # so it never overclaims on a frame where everyone is still tied at 0.
+        for rank, (y, v, lab) in enumerate(zip(ypos, vals, order), start=1):
+            best = (lab == winner)
+            tag = "   ✓ best at finish" if best else ""
+            gb.text(v + ymax * 0.012, y, f"{v:.2f}{tag}", va="center",
+                    ha="left", fontsize=9.0,
+                    fontweight=("bold" if best else "normal"),
+                    color=(per_policy[lab]["color"] if best else "0.15"))
         gb.axvline(0.0, color=BLK, lw=1.4, ls="--", zorder=2)
         gb.set_yticks(ypos)
-        gb.set_yticklabels([short[lab] for lab in labels], fontsize=9.0)
-        gb.set_xlim(min(-ymax * 0.04, min(vals) - ymax * 0.02), ymax * 1.04)
-        gb.set_xlabel("current mean travel-regret   "
-                      "( | = episode-end value )", fontsize=8.8)
-        gb.set_title("Mean regret right now", fontsize=10.0)
+        # rank number + name; winner label in bold colour
+        yticklabels = [f"{r}. {short[lab]}"
+                       for r, lab in enumerate(order, start=1)]
+        gb.set_yticklabels(yticklabels, fontsize=9.0)
+        for tick_lab, lab in zip(gb.get_yticklabels(), order):
+            if lab == winner:
+                tick_lab.set_fontweight("bold")
+                tick_lab.set_color(per_policy[lab]["color"])
+        gb.set_xlim(min(-ymax * 0.04, min(vals) - ymax * 0.02), xr)
+        # directionality cue in the axis label (never over data):
+        gb.set_xlabel(r"current mean travel-regret   $\downarrow$ lower is better"
+                      "   ( | marks episode-end value )", fontsize=8.4)
+        gb.set_title(f"Ranking right now: best → worst "
+                     f"(winner: {short[winner]})", fontsize=10.0)
         gb.tick_params(labelsize=8.5)
         gb.grid(True, axis="x", alpha=0.25, lw=0.6)
 

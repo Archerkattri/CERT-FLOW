@@ -29,6 +29,17 @@ certificate says the gap shrinks fastest.
 | sensing | none / heuristic | none | **certificate-directed** (oracle-level regret) |
 | static regime | fast | tight | **proof-gated preprocessing**: ns–µs queries that self-expire |
 
+### Results at a glance
+
+| metric | | CERT-FLOW | best baseline |
+|---|:--:|---|---|
+| certificate coverage | ↑ | **1.000** — every condition | AD\* 0.02–0.59 · CIA → 0.20 |
+| travel-regret, unknown terrain | ↓ | **−0.12** ≈ clairvoyant oracle | VOI 0.47 · freshness/blind 4–7 |
+| fully-certified round, 60×60 | ↓ | **3.7 ms** p50 / 12 ms p95 | — (no certified planner reports this) |
+| road cost-change absorption | ↓ | **0.015–0.34 ms** | CRP ≈ 1 s |
+
+*↑ higher is better · ↓ lower is better · **bold** = CERT-FLOW · every result table in [`docs/`](docs/) is marked and ranked best→worst*
+
 ## Headline results (all reproducible below)
 
 - **Coverage ≥ claimed confidence on every condition ever run**: 17 synthetic

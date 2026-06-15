@@ -108,9 +108,15 @@ def capture():
     return frames
 
 
-def _band(ax, frames, k, key, color, name, hits_key, gated, ymin, ymax):
+def _band(ax, frames, k, key, color, name, hits_key, gated, ymin, ymax,
+          is_winner):
     """Draw one side's band timeline up to round k, with honest warm-up
-    shading and genuine-violation markers."""
+    shading and genuine-violation markers.
+
+    `is_winner` only controls clarity decoration (a "best" / "breaks" tag and
+    the directionality cue); it is derived from the MEASURED coverage of this
+    run, never hardcoded — see _draw, which compares the two final fractions.
+    """
     xs = np.arange(k + 1)
     oo = [frames[j]["opt"] for j in xs]
     # AD* claims every round; CERT claims only once its certificate is valid.
@@ -120,15 +126,18 @@ def _band(ax, frames, k, key, color, name, hits_key, gated, ymin, ymax):
     ax.fill_between(xs, lo_, hi_, color=color, alpha=0.45, lw=0,
                     label=f"{name} interval", zorder=1)
     ax.plot(xs, oo, "-", color=BLK, lw=2.2, label="true OPT", zorder=3)
-    # warm-up region (CERT only): NO claim yet — shade it, never penalize it
+    # warm-up region (CERT only): NO claim yet — shade it, never penalize it.
+    # The label sits in the empty band between the OPT line and the legend,
+    # INSIDE the grey span, so it never overlaps the OPT curve or any data.
     if gated:
         wu = [j for j in xs if not frames[j]["cert_valid"]]
         if wu:
-            ax.axvspan(min(wu), max(wu) + 1, color="0.86", alpha=0.7, lw=0,
-                       zorder=0)
-            ax.text((min(wu) + max(wu) + 1) / 2.0, ymin + 0.07 * (ymax - ymin),
-                    "warm-up\nno claim", fontsize=10, color="0.35",
-                    ha="center", va="bottom", style="italic")
+            x0, x1 = min(wu), max(wu) + 1
+            ax.axvspan(x0, x1, color="0.86", alpha=0.7, lw=0, zorder=0)
+            ax.text((x0 + x1) / 2.0, ymin + 0.50 * (ymax - ymin),
+                    "warm-up\nno claim\n(not scored)", fontsize=9.5,
+                    color="0.32", ha="center", va="center", style="italic",
+                    linespacing=1.25, zorder=5)
     # genuine miss: a claim WAS made AND the true OPT fell outside it
     viol = [j for j in xs if claim[j] and not frames[j][hits_key]]
     if viol:
@@ -139,13 +148,41 @@ def _band(ax, frames, k, key, color, name, hits_key, gated, ymin, ymax):
     cov = frames[k][("cert_cov" if gated else "ad_cov")]
     n_claims = (sum(1 for j in xs if frames[j]["cert_valid"]) if gated else k + 1)
     accent = BLUE if gated else ORANGE
+    # rank tag in the title makes best-vs-worst explicit at a glance
+    rank = "BEST  " if is_winner else "worse  "
     ax.set_title(
-        f"{name}: true OPT covered on {cov:.0%} of its {n_claims} claims",
-        fontsize=13, color=accent, fontweight="bold", pad=4)
-    ax.legend(loc="upper left", fontsize=9.5, framealpha=0.92, ncol=3,
-              handlelength=1.3, columnspacing=1.0, borderpad=0.3)
+        f"{rank}{name}: true OPT covered on {cov:.0%} of its {n_claims} claims",
+        fontsize=12.5, color=accent, fontweight="bold", pad=4)
+    ax.legend(loc="upper left", fontsize=9.0, framealpha=0.92, ncol=3,
+              handlelength=1.2, columnspacing=0.9, borderpad=0.3)
     ax.tick_params(labelsize=10)
     ax.set_ylabel("path cost", fontsize=10)
+
+    # --- clarity overlay: directionality cue + winner/loser verdict ---------
+    # The verdict text lives in the large empty upper region of each panel
+    # (CERT band fills the lower-right; AD* band hugs the bottom), so it can
+    # never sit on a curve, marker, the title, the legend, or the axis.
+    if is_winner:
+        # CERT band climbs into the upper-right, but its very top stays below
+        # the axis top; this corner is clear in every frame and right of the
+        # upper-left legend.
+        ax.text(0.982, 0.945, "✓ covers OPT every claim",
+                transform=ax.transAxes, ha="right", va="top",
+                fontsize=10.5, fontweight="bold", color="#0a7d4f",
+                bbox=dict(boxstyle="round,pad=0.34", fc="#e3f6ec",
+                          ec="#0a7d4f", lw=1.4), zorder=6)
+    else:
+        # AD* band hugs the bottom (~OPT level), so the whole mid/upper-right
+        # is empty — park the verdict there, well below the legend.
+        ax.text(0.982, 0.60, "✗ misses OPT on most claims",
+                transform=ax.transAxes, ha="right", va="center",
+                fontsize=10.5, fontweight="bold", color="#9c2a14",
+                bbox=dict(boxstyle="round,pad=0.34", fc="#fbe6df",
+                          ec="#9c2a14", lw=1.4), zorder=6)
+    # The coverage directionality cue is a single figure-level note (in the
+    # header band, always clear of data) rather than a per-panel box — the
+    # AD* violation markers fill the lower-right by the final round, so a
+    # floating box there would be pierced.
 
 
 def _draw(fig, axes, frames, k, ymin, ymax):
@@ -174,23 +211,33 @@ def _draw(fig, axes, frames, k, ymin, ymax):
     gx.set_xlabel("background shade = current true edge cost", fontsize=10.5)
     gx.legend(loc="lower right", fontsize=10, framealpha=0.92)
     # --- right: two stacked, unambiguous band timelines ---
+    # Winner is decided from the MEASURED final coverage of this very run, so
+    # the "best" tag follows the data and would flip if the data did.
+    final = frames[-1]
+    cert_wins = final["cert_cov"] >= final["ad_cov"]
     _band(gc, frames, k, "cert", SKY, "CERT [LB, UB]", "cert_in", True,
-          ymin, ymax)
+          ymin, ymax, is_winner=cert_wins)
     _band(ga, frames, k, "ad", ORANGE, "AD* w=1.5 band", "ad_in", False,
-          ymin, ymax)
+          ymin, ymax, is_winner=not cert_wins)
     ga.set_xlabel("replanning round", fontsize=11)
     return []
 
 
-def _fig():
-    fig = plt.figure(figsize=(12.6, 5.9))
+def _fig(cert_cov, ad_cov):
+    """Build the figure. The title names the winner using the MEASURED final
+    coverages passed in (cert_cov, ad_cov) — nothing here is hardcoded."""
+    fig = plt.figure(figsize=(12.6, 6.05))
+    winner = "CERT" if cert_cov >= ad_cov else "AD*"
     fig.suptitle(
-        "Certificate validity under drift:  CERT [LB <= OPT <= UB] holds  vs  "
-        "AD* w-suboptimality band breaks",
-        fontsize=14.5, fontweight="bold", y=0.975)
+        f"Certificate validity under drift  —  winner: {winner}  "
+        f"(covers true OPT on {cert_cov:.0%} of claims  vs  AD* {ad_cov:.0%})",
+        fontsize=13.5, fontweight="bold", y=0.970)
+    fig.text(0.5, 0.918,
+             "coverage: ↑ higher is better   ·   panels ranked best → worst",
+             ha="center", fontsize=9.5, color="0.4", style="italic")
     gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.32],
-                          left=0.045, right=0.992, top=0.855, bottom=0.085,
-                          wspace=0.16, hspace=0.40)
+                          left=0.045, right=0.992, top=0.845, bottom=0.082,
+                          wspace=0.16, hspace=0.46)
     gx = fig.add_subplot(gs[:, 0])   # grid spans both rows
     gc = fig.add_subplot(gs[0, 1])   # CERT band timeline
     ga = fig.add_subplot(gs[1, 1])   # AD* band timeline
@@ -198,7 +245,8 @@ def _fig():
 
 
 def render(frames):
-    fig, axes = _fig()
+    final = frames[-1]
+    fig, axes = _fig(final["cert_cov"], final["ad_cov"])
     # shared y-range for the two timelines, computed from the real run
     opts = [f["opt"] for f in frames]
     ymax = max(max(opts),
@@ -253,7 +301,6 @@ def render(frames):
     plt.close(fig)
 
     # ---- measured numbers (the honest readout) ----
-    final = frames[-1]
     n_cert_claims = sum(1 for f in frames if f["cert_valid"])
     n_warmup = ROUNDS - n_cert_claims
     print("=" * 64)
