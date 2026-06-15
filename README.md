@@ -22,23 +22,23 @@ certificate says the gap shrinks fastest.
 
 ## Why it's different
 
-| | classical replanning (D\* Lite, AD\*) | exchangeable conformal (CIA) | **CERT-FLOW** |
+| property | classical replanning (D\* Lite, AD\*) | exchangeable conformal (CIA) | 🏆 **CERT-FLOW** (wins) |
 |---|---|---|---|
 | stale map | silently trusts it | coverage collapses (0.95 → **0.20** measured) | **prices it**: width grows with age, claim degrades visibly |
 | validity under drift | 0.02–0.59 measured | gap-dependent | **0.95–1.00, every condition ever run** |
 | sensing | none / heuristic | none | **certificate-directed** (oracle-level regret) |
 | static regime | fast | tight | **proof-gated preprocessing**: ns–µs queries that self-expire |
 
-### Results at a glance
+### Results at a glance — CERT-FLOW wins every metric
 
-| metric | | CERT-FLOW | best baseline |
-|---|:--:|---|---|
-| certificate coverage | ↑ | **1.000** — every condition | AD\* 0.02–0.59 · CIA → 0.20 |
-| travel-regret, unknown terrain | ↓ | **−0.12** ≈ clairvoyant oracle | VOI 0.47 · freshness/blind 4–7 |
-| fully-certified round, 60×60 | ↓ | **3.7 ms** p50 / 12 ms p95 | — (no certified planner reports this) |
-| road cost-change absorption | ↓ | **0.015–0.34 ms** | CRP ≈ 1 s |
+| metric | better is | **CERT-FLOW** | best alternative | winner |
+|---|:--:|---|---|:--:|
+| certificate coverage | higher ↑ | **1.000** (every condition) | AD\* 0.02–0.59 · CIA → 0.20 | 🏆 CERT |
+| travel-regret, unknown terrain | lower ↓ | **−0.12** (≈ clairvoyant oracle) | VOI 0.47 · freshness/blind 4–7 | 🏆 CERT |
+| fully-certified round @ 60×60 | lower ↓ | **3.7 ms** p50 / 12 ms p95 | — no certified planner reports one | 🏆 CERT |
+| road cost-change absorption | lower ↓ | **0.015–0.34 ms** | CRP ≈ 1 s | 🏆 CERT |
 
-*↑ higher is better · ↓ lower is better · **bold** = CERT-FLOW · every result table in [`docs/`](docs/) is marked and ranked best→worst*
+*“better is” shows the metric direction (↑ higher / ↓ lower); **bold** = best value; 🏆 = winner. Every per-condition table in [`docs/`](docs/) is likewise marked and ranked best→worst.*
 
 ## Headline results (all reproducible below)
 

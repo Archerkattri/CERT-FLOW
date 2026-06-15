@@ -229,15 +229,15 @@ def render(data):
         # around y~0.55-0.70 on the LEFT is empty in every frame -- anchor the
         # callout there and let the arrow reach the (low) frontier marker. This
         # keeps it clear of the upper-right legend for all gaps.
-        j = upto - 1
-        if j >= 1:                      # not the static gap=0 control
-            axc.annotate(
-                f"CIA {cia['cov'][j]:.0%}\nat gap {GAP_LABELS[j]}",
-                xy=(j, cia["cov"][j]),
-                xytext=(0.62, 0.585), textcoords=axc.transAxes,
-                fontsize=10.5, color=ORANGE, ha="center", va="center",
-                arrowprops=dict(arrowstyle="->", color=ORANGE, lw=1.6,
-                                connectionstyle="arc3,rad=0.0"))
+        # Static collapse callout, parked in the empty mid-right band (CERT is
+        # pinned near 100% at the top, CIA sits in the bottom half) with NO
+        # leader line, so it never crosses or overlaps a curve/marker/error bar
+        # in any frame of the reveal.
+        axc.text(0.965, 0.60, "CIA: 88% at gap 0\n→ 4–38% once stale",
+                 transform=axc.transAxes, ha="right", va="center",
+                 fontsize=10.5, color=ORANGE,
+                 bbox=dict(boxstyle="round,pad=0.3", fc="white",
+                           ec=ORANGE, lw=1.0, alpha=0.92))
 
         axc.set_xlim(-0.45, G - 0.55)
         axc.set_ylim(-0.03, 1.08)
