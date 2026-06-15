@@ -114,11 +114,42 @@ in `data/README.md`; ~230 MB + optional FoMo cost-signal ~150 MB, links inside).
 
 ## Videos
 
-Honest side-by-side comparisons (real runs, measured numbers) live in
-`site/` and render via `scripts/viz_compare.py` + `scripts/viz_gen/`: the
-certificate holding vs. AD\*'s stale band breaking (synthetic + a real
-MovingAI map), gap-directed sensing reaching near-oracle regret, and the
-exchangeable-conformal (CIA) coverage collapse under staleness on METR-LA.
+Honest side-by-side comparisons — every clip replays a **real run** and the
+coverage/regret numbers shown are measured, not staged (warm-up rounds are
+drawn as "no claim", never counted as misses). Generators:
+`scripts/viz_compare.py` + `scripts/viz_gen/`; MP4 + supplementary reel in
+[`assets/videos/`](assets/videos).
+
+**The certificate that holds vs. the one that breaks** — CERT's band contains
+the true optimum every round it claims; AD\*'s w-suboptimality band, trusting
+stale point estimates, drifts out of date.
+
+![certificate holds vs breaks, synthetic drift](assets/videos/cert-break-grid.gif)
+
+*Synthetic drifting grid — CERT coverage 100% vs AD\* 43% (60 rounds).*
+
+![certificate holds vs breaks, real MovingAI map](assets/videos/cert-break-movingai.gif)
+
+*Real MovingAI map (DAO arena) — CERT 100% vs AD\* 42%.*
+
+**Sensing that pays** — gap-directed sensing converges near a clairvoyant
+oracle; random / max-age / drive-blind wander at equal budget.
+
+![sensing that pays, synthetic](assets/videos/sensing-grid.gif)
+
+*Unknown drifting terrain — CERT travel-regret 1.96 vs random 7.84 / max-age 4.89 / blind 5.43 (15 seeds).*
+
+![sensing that pays, MovingAI](assets/videos/sensing-movingai.gif)
+
+*Real arena map — CERT 1.71, lowest of all policies.*
+
+**Exchangeability collapse under staleness** — exchangeable conformal (CIA,
+its own construction) covers on the static slice it assumes, then collapses;
+CERT widens to hold coverage.
+
+![CIA collapse vs CERT, METR-LA](assets/videos/staleness-metrla.gif)
+
+*METR-LA — CIA coverage 0.88 → 0.25 → 0.38 (width frozen) vs CERT ~1.0 (width grows).*
 
 ## How it works
 

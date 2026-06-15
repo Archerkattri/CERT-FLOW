@@ -200,7 +200,7 @@
         <p class="lead">Each edge carries an estimate, an observation age, and a drift bound. Age-weighted <b>non-exchangeable conformal prediction</b> turns these into intervals that widen with staleness; two incremental searches bound the optimum from both sides; the certificate either certifies or points sensing at the edge that shrinks it fastest.</p>
       </div>
       <figure>
-        <img src="assets/img/overview.png" alt="One CERT round: observations → conformal intervals → dual search → certificate → sensing">
+        <img src="../assets/overview.png" alt="One CERT round: observations → conformal intervals → dual search → certificate → sensing">
         <figcaption>One CERT round — observations feed conformal intervals, dual incremental search brackets the optimum, the certificate drives sensing, and a proof of tightness licenses lookup-speed preprocessing.</figcaption>
       </figure>
     </div>
@@ -222,32 +222,32 @@
     <p class="lead">Every clip replays a <b>real run</b>; the coverage and regret numbers shown are measured, not staged. (A note on honesty: on a known static map every planner finds the same optimal path — so these show what actually differs: certificate validity, sensing efficiency, and behaviour under drift.)</p>
     <div class="vids">
       <div class="vid">
-        <video controls muted loop playsinline poster="assets/img/poster-cert-break-grid.png">
-          <source src="assets/media/cert-break-grid.mp4" type="video/mp4">
+        <video controls muted loop playsinline poster="../assets/posters/poster-cert-break-grid.png">
+          <source src="../assets/videos/cert-break-grid.mp4" type="video/mp4">
         </video>
         <div class="cap"><h3>Certificate holds vs breaks — drifting grid</h3>
           <p>CERT's band contains the true optimum every round it claims; AD*'s w-suboptimality band, trusting stale point estimates, drifts out of date.</p>
           <div class="stat">coverage — CERT 100% · AD* 43% (measured, 60 rounds)</div></div>
       </div>
       <div class="vid">
-        <video controls muted loop playsinline poster="assets/img/poster-cert-break-movingai.png">
-          <source src="assets/media/cert-break-movingai.mp4" type="video/mp4">
+        <video controls muted loop playsinline poster="../assets/posters/poster-cert-break-movingai.png">
+          <source src="../assets/videos/cert-break-movingai.mp4" type="video/mp4">
         </video>
         <div class="cap"><h3>Same story, real MovingAI map</h3>
           <p>Certificate validity on benchmark game-map geometry under bounded drift.</p>
           <div class="stat">measured coverage — rendered from a live run</div></div>
       </div>
       <div class="vid">
-        <video controls muted loop playsinline poster="assets/img/poster-sensing-grid.png">
-          <source src="assets/media/sensing-grid.mp4" type="video/mp4">
+        <video controls muted loop playsinline poster="../assets/posters/poster-sensing-grid.png">
+          <source src="../assets/videos/sensing-grid.mp4" type="video/mp4">
         </video>
         <div class="cap"><h3>Sensing that pays</h3>
           <p>Gap-directed sensing converges near a clairvoyant oracle; random / max-age / drive-blind wander at equal budget.</p>
           <div class="stat">~2–3× lower travel-regret at equal budget</div></div>
       </div>
       <div class="vid">
-        <video controls muted loop playsinline poster="assets/img/poster-staleness-metrla.png">
-          <source src="assets/media/staleness-metrla.mp4" type="video/mp4">
+        <video controls muted loop playsinline poster="../assets/posters/poster-staleness-metrla.png">
+          <source src="../assets/videos/staleness-metrla.mp4" type="video/mp4">
         </video>
         <div class="cap"><h3>Exchangeability collapse — METR-LA</h3>
           <p>Exchangeable conformal (CIA, its own construction) covers at gap 0, then collapses with staleness; CERT widens to hold.</p>
