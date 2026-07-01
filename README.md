@@ -69,6 +69,50 @@ certificate says the gap shrinks fastest.
   help. Every known limitation and its disposition:
   [docs/results/limitations.md](docs/results/limitations.md).
 
+## 2026 upgrades (opt-in)
+
+Everything here is **off by default** — the single-agent certificate and its
+guarantees are byte-identical, and each addition is a new class or a config flag
+you opt into. Derivations in
+[docs/related-work-2026.md](docs/related-work-2026.md); the API in the
+[CHANGELOG](CHANGELOG.md).
+
+- **Additive multi-agent certificate** — `certflow.team.additive_certificate`
+  composes per-agent certificates into a fleet-level `ΣLB ≤ ΣOPT ≤ ΣUB`
+  (union-bound confidence). The one TEAM-CERT variant that survived scrutiny.
+  ([docs/results/multiagent.md](docs/results/multiagent.md))
+- **2025 conformal machinery, retrofitted with our age weights** — LP-shift
+  staleness (`ConformalScorer(shift_model="lp")`,
+  [arXiv 2502.14105](https://arxiv.org/abs/2502.14105)); a scale-free SF-OGD step
+  for the ACI net (`ACITracker(mode="sf-ogd")`,
+  [arXiv 2302.07869](https://arxiv.org/abs/2302.07869)); CIA path-*sum*
+  calibration (`CIACalibrator`, `CertPlanner.cia_path_certificate()`,
+  [arXiv 2408.10939](https://arxiv.org/abs/2408.10939)); and PASC joint
+  *per-edge* radius (`PASCCalibrator`, `CertPlanner.pasc_edge_radius()`,
+  [arXiv 2605.18812](https://arxiv.org/abs/2605.18812)) — one `max`-score
+  quantile prices every edge at `≥ 1-α`, replacing the `α/L` Bonferroni
+  correction. TV, fixed-γ, and Bonferroni stay the defaults.
+- **Testability layer** — makes the pinned-at-1.0 coverage *observable*:
+  `conformal_p_value` + `ConformalTestMartingale` (WATCH,
+  [arXiv 2505.04608](https://arxiv.org/abs/2505.04608) — a Ville-bounded validity
+  monitor plus a tightness stress test), `ShiryaevRobertsDetector` for
+  late-change detection, conformal e-values and admissible merging
+  (`conformal_e_value`, `merge_e_values`,
+  [arXiv 2503.13050](https://arxiv.org/abs/2503.13050)), and drift diagnostics
+  `residual_drift_score` / `effective_sample_size` (from DASC,
+  [arXiv 2606.15953](https://arxiv.org/abs/2606.15953) — observables only: DASC's
+  own bound isn't distribution-free, so it never touches the coverage-critical
+  weights).
+- **Demonstration** — `scripts/run_watch_testability.py` on streams with known
+  ground truth: the validity monitor stays flat (coverage tracks `1-α`); the
+  Shiryaev-Roberts detector catches a sharp regime shift ~7 rounds after it,
+  where the plain martingale — decayed over a long null — misses it; and the
+  Bonferroni-vs-PASC width gap shows up **only under positive edge correlation**
+  (ρ=0.9, L=20: Bonferroni over-covers 0.97, PASC holds ~0.91 at **16.5% less
+  width**). Under independence PASC barely helps — stated, not hidden.
+
+With these in, the full suite is **239 passing** (the default path unchanged).
+
 ## Quickstart
 
 ```bash
