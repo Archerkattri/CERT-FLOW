@@ -39,9 +39,11 @@ Documentation = "https://github.com/Archerkattri/CERT-FLOW/tree/main/docs"
 Issues = "https://github.com/Archerkattri/CERT-FLOW/issues"
 
 [project.optional-dependencies]
-fast = ["numba"]
+fast = ["numba>=0.59"]
 dev = ["pytest>=7.0"]
 realworld = ["pandas>=1.5", "tables>=3.7"]
+plots = ["matplotlib>=3.7"]        # scripts/make_figures.py
+bench = ["networkx>=3.0"]          # scripts/run_repeated_queries.py external baseline
 
 [build-system]
 requires = ["hatchling"]

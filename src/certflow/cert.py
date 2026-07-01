@@ -206,6 +206,37 @@ class PlannerConfig:
     stagger_lo: float = 0.75
     stagger_hi: float = 1.25
 
+    # --- Distribution-shift staleness model (arXiv 2502.14105) ----------------
+    # shift_model="tv" (default) keeps the TV-Lipschitz Delta_stale coverage
+    # correction. shift_model="lp" swaps in the Levy-Prokhorov worst-case
+    # quantile instead: the per-edge conformal quantile becomes
+    #   quantile(alpha_edge - rho_lp) + eps_lp
+    # (level shift + flat offset) and the confidence penalty per edge becomes
+    # the flat LP mass rho_lp rather than 2*eps_tv*age. eps_lp is the smooth-
+    # drift budget per query (units of the score), rho_lp the mass of abruptly
+    # / adversarially changed edges. Both 0 => LP reduces to plain conformal.
+    # LP intervals are always >= the exchangeable ones, so it is a purely
+    # conservative (sound) alternative. Default reproduces the TV behavior.
+    shift_model: str = "tv"
+    eps_lp: float = 0.0
+    rho_lp: float = 0.0
+
+    # --- ACI step-size rule (SAOCP, arXiv 2302.07869, Alg. 2) -----------------
+    # aci_mode="fixed" (default) is the Gibbs-Candes gamma-step ACI. "sf-ogd"
+    # uses the scale-free OGD step s_{t+1} = s_t - eta*g_t/sqrt(sum ||g_i||^2),
+    # which is anytime and needs no gamma tuned to the err/score magnitude.
+    aci_mode: str = "fixed"
+    aci_eta: float = 0.1
+
+    # --- Path-level calibration (CIA, arXiv 2408.10939) -----------------------
+    # path_calibration="bonferroni" (default) is the per-edge Bonferroni UB.
+    # "cia" is the experimental group-sum path calibration exposed via
+    # CertPlanner.cia_path_certificate(); it does NOT change round()'s default
+    # certificate. rho_w for the CIA drift retrofit is taken from cfg.rho_w.
+    path_calibration: str = "bonferroni"
+    cia_symmetric: bool = False
+    cia_stratify: bool = False
+
 
 def recommended_config(**overrides) -> "PlannerConfig":
     """The best-known configuration from the full ablation/benchmark program:
@@ -271,7 +302,11 @@ class CertPlanner:
                 observed=seen,
             )
 
-        self.scorer = ConformalScorer(rho_w=config.rho_w, eps_tv=config.eps_tv)
+        self.scorer = ConformalScorer(
+            rho_w=config.rho_w, eps_tv=config.eps_tv,
+            shift_model=config.shift_model, eps_lp=config.eps_lp,
+            rho_lp=config.rho_lp,
+        )
         self.predictor = predictor
         self.binned = AgeBinnedScorer(
             bin_edges=tuple(b * config.delta for b in config.predictor_bins),
@@ -279,7 +314,10 @@ class CertPlanner:
         )
         self.pred_used_rounds = 0  # diagnostic: edges priced by the predictor
         self._edge_alpha_extra: dict[Edge, float] = {}  # per-bin annealing charge
-        self.aci = ACITracker(alpha_target=config.alpha_prime, gamma=config.gamma_aci)
+        self.aci = ACITracker(
+            alpha_target=config.alpha_prime, gamma=config.gamma_aci,
+            mode=config.aci_mode, eta=config.aci_eta,
+        )
         self.sense_spend = 0.0
         self._round_idx = 0
         self._obs_count: dict[Edge, int] = {}  # real observations per edge
@@ -664,6 +702,26 @@ class CertPlanner:
                 supportable = min(1.0, path_len * alpha_edge_min)
                 alpha_path = max(alpha_path, supportable)
                 self._alpha_claim = max(self._alpha_prime_eff, supportable)
+        if self.cfg.shift_model == "lp":
+            # Levy-Prokhorov worst-case per-edge quantile: level shift by rho_lp,
+            # flat offset eps_lp. Always >= the exchangeable quantile (sound).
+            # The shifted level consumes an extra rho_lp of per-edge mass, so
+            # the annealing floor must guarantee the SHIFTED level is supportable
+            # (else quantile_lp returns +inf). Raise only the quantile level, not
+            # the reported claim (rho_lp is charged separately in the confidence
+            # via the LP staleness term) — a purely conservative widening.
+            if self.cfg.anneal_alpha:
+                m = self.scorer.effective_mass(self.t)
+                if m > 0.0:
+                    floor_q = min(
+                        0.999,
+                        path_len * ((1.0 + 1e-9) / (m + 1.0) + self.cfg.rho_lp),
+                    )
+                    alpha_path = max(alpha_path, floor_q)
+            alpha_edge = path_alpha_edge(alpha_path, path_len)
+            self._last_alpha_edge = alpha_edge
+            return self.scorer.quantile_lp(
+                alpha_edge, self.t, eps=self.cfg.eps_lp, rho=self.cfg.rho_lp)
         alpha_edge = path_alpha_edge(alpha_path, path_len)
         self._last_alpha_edge = alpha_edge
         return self.scorer.quantile(alpha_edge, self.t)
@@ -803,7 +861,13 @@ class CertPlanner:
         # path. The CLAIM is the annealed level (>= alpha_prime; equals it
         # once the buffer supports the target) — never ACI's working alpha,
         # which only modulates interval width.
-        d_stale = self.scorer.delta_stale(self.t)
+        if cfg.shift_model == "lp":
+            # LP model prices staleness as the flat mass of abruptly-changed
+            # edges rho_lp per edge (the smooth-drift part is already in the
+            # widened quantile), replacing the TV Delta_stale coverage penalty.
+            d_stale = cfg.rho_lp
+        else:
+            d_stale = self.scorer.delta_stale(self.t)
         stale_total = L * d_stale
         if sum_aware_L:
             # T4's UB-side staleness is the BLOCK-level term (audit GAP-B;
@@ -974,6 +1038,55 @@ class CertPlanner:
 
         self.t += cfg.delta
         return cert, sensed
+
+    def cia_path_certificate(self, path: list[Node] | None = None):
+        """Experimental CIA group-sum certificate for a fixed path (config
+        flag path_calibration="cia"; does NOT alter round()'s default).
+
+        Builds calibration groups as disjoint blocks of the signed-deviation
+        buffer (newest-first, block length = |path|), scores each block sum,
+        and pulls the radius Q from the AGE-WEIGHTED empirical CDF (the drift
+        retrofit: weights are cfg.rho_w ** age, inheriting the existing
+        weighted-coverage argument). The reported UB is
+            sum(c_hat) + Q + sum(rho * age)
+        so the deterministic A1 drift term is charged on top of the conformal
+        radius, exactly as the Bonferroni UB does. Returns a CIAResult with the
+        interval on the path sum, or None while the buffer is too small.
+
+        Blocks are disjoint => overlap delta = 0; the honest coverage level is
+        1 - alpha (still degraded by the per-round staleness accounted upstream).
+        """
+        from certflow.conformal import CIAResult, weighted_group_quantile
+
+        p = path if path is not None else self._prev_incumbent
+        edges = path_edges(p) if p else []
+        if not edges:
+            return None
+        L = len(edges)
+        samples = sorted(self.scorer._signed, key=lambda s: s.t, reverse=True)
+        n_blocks = len(samples) // L
+        if n_blocks == 0:
+            return None
+        alpha_path = (
+            self.aci.working_alpha() if self.cfg.use_aci else self._alpha_prime_eff
+        )
+        scores, weights = [], []
+        for b in range(n_blocks):
+            block = samples[b * L : (b + 1) * L]
+            scores.append(abs(sum(s.residual for s in block)))
+            weights.append(
+                min(self.cfg.rho_w ** max(0.0, self.t - s.t) for s in block)
+            )
+        Q = weighted_group_quantile(scores, weights, alpha_path)
+        if not math.isfinite(Q):
+            return None
+        pred = sum(self.beliefs[e].c_hat for e in edges)
+        drift = sum(self.beliefs[e].rho * self.beliefs[e].age(self.t) for e in edges)
+        q_margin = self.cfg.latent_margin * Q + drift
+        return CIAResult(
+            lo=pred - q_margin, ub=pred + q_margin, Q=q_margin, delta=0.0,
+            coverage_level=max(0.0, 1.0 - alpha_path),
+        )
 
     def _mean_graph(self) -> dict[Node, dict[Node, float]]:
         """Point-estimate adjacency (max(c_hat, cost_floor)) for VOI sensing.

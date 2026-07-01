@@ -48,7 +48,7 @@ First PyPI release (`pip install certflow`).
 
 ### Fixed
 - Lint sweep over `src/`: removed unused imports and dead local assignments
-  (no behavior change; the full 223-test suite passes bit-identically).
+  (no behavior change; the full test suite passes bit-identically).
 
 ## [1.0.0] - 2026-06-10
 
@@ -64,7 +64,7 @@ Planning under Drifting Costs (Extended Version)*.
 - Certificate-gated preprocessing: all-pairs snapshot oracle and certified
   Contraction Hierarchies (ns-to-microsecond queries that expire under
   drift).
-- 223 tests; 16 reproduction pipelines covering 17 synthetic regimes,
+- 200+ tests; 16 reproduction pipelines covering 17 synthetic regimes,
   METR-LA / PEMS-BAY traffic replay, MovingAI maps, and DIMACS road
   networks.
 - Theory T1-T7 documented in `docs/` (coverage, certifiability threshold,

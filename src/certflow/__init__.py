@@ -24,6 +24,7 @@ Submodules: conformal (quantile machinery), cert (the planner loop), sensing
 """
 from certflow.cert import CertPlanner, PlannerConfig
 from certflow.conformal import ACITracker, ConformalScorer
+from certflow.team import TeamCertificate, additive_certificate
 from certflow.types import Certificate, EdgeBelief, World
 
 __version__ = "1.0.2"
@@ -35,6 +36,8 @@ __all__ = [
     "ConformalScorer",
     "EdgeBelief",
     "PlannerConfig",
+    "TeamCertificate",
     "World",
+    "additive_certificate",
     "__version__",
 ]

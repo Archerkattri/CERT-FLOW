@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/certflow/"><img alt="PyPI" src="https://img.shields.io/pypi/v/certflow?color=009E73"></a>
-  <a href="#reproducing-every-number"><img alt="tests" src="https://img.shields.io/badge/tests-227%20passing-0072B2"></a>
+  <a href="#reproducing-every-number"><img alt="tests" src="https://img.shields.io/badge/tests-200%2B%20passing-0072B2"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-56B4E9">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-1a7f37">
   <img alt="coverage claim" src="https://img.shields.io/badge/certificate%20coverage-1.000%20measured-D55E00">
@@ -93,7 +93,7 @@ To develop or reproduce the paper numbers, work from a clone:
 git clone https://github.com/Archerkattri/CERT-FLOW && cd CERT-FLOW
 python -m venv cert_env && source cert_env/bin/activate
 pip install -e ".[dev,fast,realworld]" h5py
-pytest   # full suite: 227 with datasets; data-dependent tests skip cleanly without data/
+pytest   # full suite: 200+ tests (more with datasets); data-dependent tests skip cleanly without data/
 ```
 
 ## Reproducing every number
