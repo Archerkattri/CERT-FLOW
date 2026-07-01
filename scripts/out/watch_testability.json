@@ -1,0 +1,137 @@
+{
+  "params": {
+    "rounds": 3000,
+    "alpha": 0.1,
+    "rho_w": 0.98,
+    "drift": 0.05,
+    "noise": 0.1,
+    "seed": 0
+  },
+  "validity_monitor": {
+    "empirical_coverage": 0.9141,
+    "target_coverage": 0.9,
+    "martingale_running_max": 1.27,
+    "sr_peak": 1401.0,
+    "alarmed": false,
+    "verdict": "PASS: no false alarm; coverage tracks nominal 1-alpha"
+  },
+  "violation_detector": {
+    "shift_at_round": 250,
+    "sr_alarmed": true,
+    "sr_peak": 323089137.7,
+    "detection_delay_rounds": 7,
+    "martingale_caught": false,
+    "verdict": "PASS: Shiryaev-Roberts detected the shift ~7 rounds after it (peak 323089138 vs threshold 10000); the plain martingale missed it (decayed over the long null -- why SR is the right tool)"
+  },
+  "path_bonferroni_vs_pasc": {
+    "vs_correlation_L20": [
+      {
+        "L": 20,
+        "rho": 0.0,
+        "bonferroni": {
+          "joint_coverage": 0.9145,
+          "total_width": 57.564
+        },
+        "pasc": {
+          "joint_coverage": 0.9058,
+          "total_width": 56.393
+        },
+        "width_reduction_pct": 2.0
+      },
+      {
+        "L": 20,
+        "rho": 0.3,
+        "bonferroni": {
+          "joint_coverage": 0.9033,
+          "total_width": 56.614
+        },
+        "pasc": {
+          "joint_coverage": 0.9007,
+          "total_width": 55.83
+        },
+        "width_reduction_pct": 1.4
+      },
+      {
+        "L": 20,
+        "rho": 0.6,
+        "bonferroni": {
+          "joint_coverage": 0.9345,
+          "total_width": 57.877
+        },
+        "pasc": {
+          "joint_coverage": 0.884,
+          "total_width": 53.409
+        },
+        "width_reduction_pct": 7.7
+      },
+      {
+        "L": 20,
+        "rho": 0.9,
+        "bonferroni": {
+          "joint_coverage": 0.9722,
+          "total_width": 57.798
+        },
+        "pasc": {
+          "joint_coverage": 0.9147,
+          "total_width": 48.286
+        },
+        "width_reduction_pct": 16.5
+      }
+    ],
+    "vs_length_rho": [
+      {
+        "L": 5,
+        "rho": 0.6,
+        "bonferroni": {
+          "joint_coverage": 0.9213,
+          "total_width": 11.757
+        },
+        "pasc": {
+          "joint_coverage": 0.912,
+          "total_width": 11.493
+        },
+        "width_reduction_pct": 2.2
+      },
+      {
+        "L": 10,
+        "rho": 0.6,
+        "bonferroni": {
+          "joint_coverage": 0.915,
+          "total_width": 25.704
+        },
+        "pasc": {
+          "joint_coverage": 0.8928,
+          "total_width": 24.77
+        },
+        "width_reduction_pct": 3.6
+      },
+      {
+        "L": 20,
+        "rho": 0.6,
+        "bonferroni": {
+          "joint_coverage": 0.9172,
+          "total_width": 56.483
+        },
+        "pasc": {
+          "joint_coverage": 0.9018,
+          "total_width": 54.615
+        },
+        "width_reduction_pct": 3.3
+      },
+      {
+        "L": 40,
+        "rho": 0.6,
+        "bonferroni": {
+          "joint_coverage": 0.9352,
+          "total_width": 124.99
+        },
+        "pasc": {
+          "joint_coverage": 0.9058,
+          "total_width": 117.801
+        },
+        "width_reduction_pct": 5.8
+      }
+    ],
+    "verdict": "Under independence (rho=0) Bonferroni is already ~calibrated and PASC barely helps; as cross-edge correlation grows, Bonferroni joint coverage climbs toward 1.0 (over-conservative) while PASC stays ~0.90 -- at rho=0.9, L=20 PASC is 16% narrower."
+  }
+}

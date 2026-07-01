@@ -816,6 +816,58 @@ class ConformalTestMartingale:
         return self._log_max >= math.log(1.0 / self.alarm_delta)
 
 
+class ShiryaevRobertsDetector:
+    """Shiryaev-Roberts e-detector for a change after a possibly LONG null period
+    (WATCH Prop 3.3, arXiv 2505.04608).
+
+    A plain conformal test martingale (:class:`ConformalTestMartingale`) can random-
+    walk toward zero over a long null run, so a *late* violation has to overcome
+    that accumulated decay before it can alarm. The Shiryaev-Roberts statistic
+    restarts implicitly at every step and does not::
+
+        R_0 = 0 ;  R_t = (1 + R_{t-1}) * e_t
+
+    with ``e_t`` the conformal e-value (:func:`conformal_e_value`). Under the null
+    ``E[R_t] = t`` (it grows only linearly), and the average run length to a false
+    alarm at threshold ``c`` is ``>= c`` (Pollak/Tartakovsky; WATCH Prop 3.3). After
+    a change ``e_t >> 1`` sustains and ``R_t`` explodes, so :meth:`alarm` fires
+    quickly regardless of how long the null ran first. Pick ``threshold`` as the
+    target false-alarm ARL (expected rounds between false alarms).
+    """
+
+    def __init__(self, threshold: float, epsilon: float = 0.5) -> None:
+        if threshold <= 1.0:
+            raise ValueError("threshold must be > 1")
+        if not 0.0 < epsilon < 1.0:
+            raise ValueError("epsilon must be in (0, 1)")
+        self.threshold = threshold
+        self.epsilon = epsilon
+        self.R = 0.0
+        self._t = 0
+        self._alarm_t: int | None = None
+        self._peak = 0.0
+
+    def update(self, p: float) -> float:
+        e = conformal_e_value(p, self.epsilon)
+        self.R = (1.0 + self.R) * e
+        self._peak = max(self._peak, self.R)
+        if self._alarm_t is None and self.R >= self.threshold:
+            self._alarm_t = self._t
+        self._t += 1
+        return self.R
+
+    @property
+    def peak(self) -> float:
+        return self._peak
+
+    @property
+    def alarm_round(self) -> int | None:
+        return self._alarm_t
+
+    def alarm(self) -> bool:
+        return self._alarm_t is not None
+
+
 def score_ratio_e_value(
     test_score: float,
     cal_scores: list[float],

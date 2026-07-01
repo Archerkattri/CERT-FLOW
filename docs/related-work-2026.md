@@ -89,6 +89,22 @@ certificate.
   (the sequential test martingale). The score-ratio e-value is `~1` for a
   trivially-wide/uninformative certificate and `≫1` when a score is anomalously
   large — the requested "collapses toward the null when uninformative" diagnostic.
+- **Shiryaev-Roberts change detector (WATCH Prop 3.3).**
+  `ShiryaevRobertsDetector` (`R_t = (1 + R_{t-1}) e_t`) is the companion to the
+  test martingale for detecting a violation *after a long null run*: a plain
+  martingale can random-walk toward zero over a long null and then miss a late
+  change, whereas SR restarts implicitly every step (`E[R_t] = t` under the null,
+  ARL `>= threshold`) and catches it. `CertPlanner.pasc_edge_radius()` exposes
+  PASC's joint per-edge radius on the live buffer.
+- **Empirical demonstration.** `scripts/run_watch_testability.py` shows all three
+  observables on controlled streams where the ground truth is known: the validity
+  monitor stays flat with coverage tracking `1-alpha`; the SR detector catches a
+  sharp regime shift ~7 rounds after it (peak `~3e8` vs threshold `1e4`) where the
+  plain martingale, decayed over the long null, misses it; and — honestly — the
+  Bonferroni-vs-PASC width gap appears only under *positive edge correlation*
+  (Bonferroni is tight under independence): at correlation `0.9` on an `L=20`
+  path, Bonferroni over-covers (`0.97`) while PASC holds `~0.91` at **16.5%** less
+  width. Under independence PASC barely helps — reported, not hidden.
 - **DASC (drift-aware spectral CP, arXiv 2606.15953) — diagnostics only, by
   design.** DASC's coverage theorem is *not* distribution-free (it depends on
   unknown Lipschitz/mismatch constants), and its drift-gated calibration weights

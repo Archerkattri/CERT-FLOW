@@ -1088,6 +1088,47 @@ class CertPlanner:
             coverage_level=max(0.0, 1.0 - alpha_path),
         )
 
+    def pasc_edge_radius(self, path: list[Node] | None = None) -> float | None:
+        """PASC joint per-edge radius for the current path (arXiv 2605.18812).
+
+        Returns a single radius ``Q`` such that pricing EVERY edge of an
+        ``L``-edge path at ``c_hat_e +/- Q`` gives JOINT per-edge coverage
+        ``>= 1 - alpha`` -- i.e. with high probability all edges are within ``Q``
+        at once, in one weighted quantile, instead of the ``alpha/L`` per-edge
+        Bonferroni correction ``round()`` uses. Built from disjoint length-``L``
+        blocks of the absolute-score buffer, taking the per-block MAX and its
+        age-weighted ``(1-alpha)`` quantile (the same drift retrofit as
+        :meth:`cia_path_certificate`).
+
+        This is PASC's genuinely useful quantity: joint per-edge validity. It does
+        NOT give a tighter path-SUM bound (that sum is ``L * Q``, same order as
+        Bonferroni) -- use :meth:`cia_path_certificate` for the ``sqrt(L)`` sum.
+        Returns ``None`` while the buffer holds fewer than one full block.
+        """
+        from certflow.conformal import weighted_group_quantile
+
+        p = path if path is not None else self._prev_incumbent
+        edges = path_edges(p) if p else []
+        if not edges:
+            return None
+        L = len(edges)
+        samples = sorted(self.scorer._buf, key=lambda s: s.t, reverse=True)
+        n_blocks = len(samples) // L
+        if n_blocks == 0:
+            return None
+        alpha_path = (
+            self.aci.working_alpha() if self.cfg.use_aci else self._alpha_prime_eff
+        )
+        scores, weights = [], []
+        for b in range(n_blocks):
+            block = samples[b * L : (b + 1) * L]
+            scores.append(max(abs(s.residual) for s in block))
+            weights.append(
+                min(self.cfg.rho_w ** max(0.0, self.t - s.t) for s in block)
+            )
+        Q = weighted_group_quantile(scores, weights, alpha_path)
+        return Q if math.isfinite(Q) else None
+
     def _mean_graph(self) -> dict[Node, dict[Node, float]]:
         """Point-estimate adjacency (max(c_hat, cost_floor)) for VOI sensing.
         Cached by beliefs-version: rebuilt only when an observation changed a

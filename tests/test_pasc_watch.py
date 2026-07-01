@@ -9,6 +9,7 @@ import pytest
 from certflow.conformal import (
     ConformalTestMartingale,
     PASCCalibrator,
+    ShiryaevRobertsDetector,
     conformal_e_value,
     conformal_p_value,
     effective_sample_size,
@@ -235,3 +236,45 @@ def test_effective_sample_size():
     # One dominating weight -> n_eff near 1.
     assert effective_sample_size([100.0, 1.0, 1.0]) < 2.0
     assert effective_sample_size([]) == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Shiryaev-Roberts change detector
+# --------------------------------------------------------------------------- #
+def test_sr_grows_linearly_under_null():
+    """Under the uniform null E[R_t] = t, so over T steps R stays O(T) and a
+    threshold >> T does not false-alarm."""
+    rng = np.random.default_rng(10)
+    peaks = []
+    for _ in range(30):
+        sr = ShiryaevRobertsDetector(threshold=1e9)  # never alarm; inspect growth
+        for _ in range(500):
+            sr.update(rng.uniform())
+        peaks.append(sr.R)
+    # mean of R_t at t=500 should be on the order of a few hundred (E=t), not
+    # exponentially large.
+    assert np.mean(peaks) < 5000
+    assert not ShiryaevRobertsDetector(threshold=1e6).alarm()
+
+
+def test_sr_detects_late_change_martingale_misses():
+    """A change after a long null: the plain martingale can decay and miss it,
+    while SR (implicit restart every step) catches it."""
+    rng = np.random.default_rng(11)
+    # threshold = target false-alarm ARL, set well above the null horizon (under
+    # the null E[R_t]=t, so 1500 null steps need a threshold >> 1500).
+    sr = ShiryaevRobertsDetector(threshold=1e5)
+    for _ in range(1500):            # long null run
+        sr.update(rng.uniform())
+    assert not sr.alarm()            # no false alarm over the null
+    for _ in range(20):              # sustained violation: tiny p-values
+        sr.update(0.005)
+    assert sr.alarm()                # SR catches the late change
+    assert sr.alarm_round is not None and sr.alarm_round >= 1500
+
+
+def test_sr_bad_params():
+    with pytest.raises(ValueError):
+        ShiryaevRobertsDetector(threshold=1.0)
+    with pytest.raises(ValueError):
+        ShiryaevRobertsDetector(threshold=10.0, epsilon=1.0)
