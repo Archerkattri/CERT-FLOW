@@ -572,3 +572,314 @@ class CIACalibrator:
             delta=self.delta,
             coverage_level=max(0.0, 1.0 - self.alpha - self.delta),
         )
+
+
+@dataclass
+class PASCResult:
+    """A PASC joint per-edge radius for a fresh path."""
+
+    Q: float               # single radius applied to EVERY edge of the path
+    coverage_level: float  # 1 - alpha (joint over all edges, under group exch.)
+    delta: float           # overlap diagnostic (see PASCCalibrator)
+
+
+class PASCCalibrator:
+    """PASC-style joint per-edge calibration (arXiv 2605.18812).
+
+    Replaces per-edge **Bonferroni** pricing (``alpha / L`` per edge, then union)
+    for the case where CERT-FLOW needs *all* edge prices on a path to be
+    simultaneously valid -- which is exactly what the dual optimistic/conservative
+    searches consume. Instead of an ``alpha / L`` quantile per edge, PASC
+    calibrates ONE quantile of the **joint maximum nonconformity score** across a
+    path's edges::
+
+        s_k = max_{i in S_k} | y_i - yhat_i |          (per calibration path S_k)
+        Q   = weighted (1 - alpha) quantile of {s_k} u {+inf}
+        price every edge of a fresh path at  yhat_e +/- Q
+
+    Guarantee (under exchangeability of the calibration groups): for a fresh path,
+    ``P( for all edges e:  |y_e - yhat_e| <= Q ) >= 1 - alpha`` -- joint over the
+    whole path in a SINGLE scalar quantile, not an ``alpha/L`` correction. Because
+    ``Q`` is the standard split-conformal weighted quantile (the same valid
+    ``weighted_group_quantile`` the rest of this module uses, with the ``u{+inf}``
+    test point), soundness does not depend on any PASC-specific level constant.
+
+    Drift retrofit (``rho_w < 1`` with per-group ``times``): ``Q`` is pulled from
+    the AGE-WEIGHTED quantile, inheriting the Barber et al. 2023 weighted-coverage
+    argument -- the same non-exchangeable retrofit as :class:`CIACalibrator`.
+
+    ``delta`` is reported for honesty (max pairwise edge-overlap fraction across
+    calibration groups): the clean guarantee assumes the calibration paths are
+    exchangeable with the test path; heavy edge reuse across groups is the regime
+    where that assumption is weakest.
+    """
+
+    def __init__(
+        self,
+        alpha: float = 0.1,
+        rho_w: float = 1.0,
+    ) -> None:
+        if not 0.0 < alpha < 1.0:
+            raise ValueError("alpha must be in (0, 1)")
+        if not 0.0 < rho_w <= 1.0:
+            raise ValueError("rho_w must be in (0, 1]")
+        self.alpha = alpha
+        self.rho_w = rho_w
+        self._fitted = False
+        self.delta = 0.0
+        self._scores: list[float] = []
+        self._weights: list[float] = []
+
+    def fit(
+        self,
+        groups: list[list[int]],
+        residuals,
+        times: list[float] | None = None,
+        t: float = 0.0,
+    ) -> "PASCCalibrator":
+        """Calibrate on paths ``S_k`` (edge-index lists) with per-edge signed
+        ``residuals`` (indexable by edge id). The per-group score is the MAX
+        absolute residual over the path's edges."""
+        self.delta = CIACalibrator._overlap_delta(groups)
+        self._scores, self._weights = [], []
+        for k, g in enumerate(groups):
+            if not g:
+                continue
+            s_k = max(abs(float(residuals[i])) for i in g)
+            if times is not None and self.rho_w < 1.0:
+                w_k = self.rho_w ** max(0.0, t - times[k])
+            else:
+                w_k = 1.0
+            self._scores.append(s_k)
+            self._weights.append(w_k)
+        self._fitted = True
+        return self
+
+    def Q(self) -> float:
+        """The single joint per-edge radius (weighted 1-alpha quantile of the
+        per-path max scores). ``+inf`` while too few groups exist (warm-up)."""
+        if not self._fitted:
+            raise RuntimeError("call fit() first")
+        if not self._scores:
+            return math.inf
+        return weighted_group_quantile(self._scores, self._weights, self.alpha)
+
+    def result(self) -> PASCResult:
+        return PASCResult(
+            Q=self.Q(),
+            coverage_level=1.0 - self.alpha,
+            delta=self.delta,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Testability layer: making the pinned-at-1.0 coverage an observable quantity.
+#
+# CERT-FLOW's certificate is sound but over-conservative: empirical coverage
+# sits at exactly 1.0, so calibration is untestable and there is no signal for
+# how much tighter one could safely go. The tools below add that signal without
+# weakening any guarantee:
+#   * conformal_p_value: weighted conformal p-value (uniform under the weighted-
+#     exchangeability null the certificate already assumes);
+#   * ConformalTestMartingale (WATCH, arXiv 2505.04608; Vovk test martingales):
+#     alarms when that null is violated (staleness model breaking / under-cover),
+#     with Ville false-alarm control -- and doubles as a tightness stress test
+#     (shrink the radius until the martingale approaches its alarm threshold);
+#   * conformal_e_value / merge_e_values (Vovk-Wang; arXiv 2503.13050): e-values
+#     and their admissible merges (average = valid under arbitrary dependence;
+#     product = the sequential test martingale).
+# --------------------------------------------------------------------------- #
+
+
+def conformal_p_value(
+    score: float,
+    cal_scores: list[float],
+    cal_weights: list[float] | None = None,
+    test_weight: float = 1.0,
+    u: float | None = None,
+) -> float:
+    """Weighted conformal p-value of a fresh nonconformity ``score`` against the
+    weighted calibration scores.
+
+        p = ( sum_i w_i 1[R_i > R] + tau (w_test + sum_i w_i 1[R_i = R]) )
+            / ( sum_i w_i + w_test )
+
+    with ``tau = u`` for the smoothed p-value (``u ~ U(0,1)``; exactly uniform
+    under the null) or ``tau = 1`` for the conservative (super-uniform) p-value
+    when ``u is None``. A *small* p means the score is anomalously large --
+    evidence the calibration under-predicts, i.e. the drift/staleness model is
+    breaking. Under weighted exchangeability (Barber et al. 2023) the p-value is
+    (super-)uniform, which is exactly what the test martingale needs.
+    """
+    n = len(cal_scores)
+    w = [1.0] * n if cal_weights is None else list(cal_weights)
+    if len(w) != n:
+        raise ValueError("cal_weights length must match cal_scores")
+    greater = sum(wi for r, wi in zip(cal_scores, w) if r > score)
+    equal = sum(wi for r, wi in zip(cal_scores, w) if r == score)
+    tau = 1.0 if u is None else float(u)
+    total = sum(w) + test_weight
+    if total <= 0.0:
+        return 1.0
+    return (greater + tau * (test_weight + equal)) / total
+
+
+def conformal_e_value(p: float, epsilon: float = 0.5) -> float:
+    """Conformal e-value from a p-value via the power betting density
+    ``f(p) = epsilon * p**(epsilon-1)`` (``epsilon in (0,1)``). It is a valid
+    e-value: ``E[f(p)] = integral_0^1 f = 1`` under the uniform null, and since
+    ``f`` is decreasing it stays an e-value (``E <= 1``) under a super-uniform
+    (conservative) p-value too. By Markov, ``P(e >= 1/alpha) <= alpha``. Large e
+    = evidence the score was anomalously large (null violated)."""
+    if not 0.0 < epsilon < 1.0:
+        raise ValueError("epsilon must be in (0, 1)")
+    p = min(1.0, max(1e-12, p))  # clamp; p=0 would be +inf evidence
+    return epsilon * p ** (epsilon - 1.0)
+
+
+def merge_e_values(evalues: list[float], method: str = "average") -> float:
+    """Merge e-values into one e-value.
+
+    ``average`` (arithmetic mean) is valid under ARBITRARY dependence (Vovk &
+    Wang 2021) -- the safe default. ``product`` is valid only under sequential /
+    independence structure (it is the test martingale). Both preserve
+    ``E[merged] <= 1`` under their respective assumptions, so the Markov alarm
+    ``merged >= 1/alpha`` keeps false-alarm probability ``<= alpha``.
+    """
+    if not evalues:
+        return 1.0
+    if method == "average":
+        return sum(evalues) / len(evalues)
+    if method == "product":
+        out = 1.0
+        for e in evalues:
+            out *= e
+        return out
+    raise ValueError("method must be 'average' or 'product'")
+
+
+class ConformalTestMartingale:
+    """Weighted conformal test martingale (WATCH, arXiv 2505.04608).
+
+    Feed it the per-round weighted conformal p-values (:func:`conformal_p_value`).
+    It bets against the exchangeability null with the power betting function
+    ``f(p) = epsilon * p**(epsilon-1)`` (``epsilon in (0,1)`` bets on small p, i.e.
+    on anomalously large scores = under-coverage). The wealth process
+    ``M_t = prod_{s<=t} f(p_s)`` is a non-negative (super)martingale with
+    ``M_0 = 1``, so Ville's inequality gives ``P(sup_t M_t >= 1/delta) <= delta``
+    under the null. :meth:`alarm` fires at ``M_t >= 1/delta``: the staleness /
+    weighting model the certificate relies on is being violated, with false-alarm
+    probability at most ``delta``.
+
+    Two uses:
+      1. **Validity monitor.** An alarm means the certificate's assumptions broke
+         (e.g. a regime change the age-weighting did not absorb) -- act on it.
+      2. **Tightness stress test.** Replay with a *shrunken* radius (tighter
+         certificate). The martingale stays flat while the tighter certificate is
+         still valid and climbs once it over-tightens; the largest shrink that
+         keeps ``M_t`` below the alarm is the tightest safe certificate. This is
+         the observable that the pinned-at-1.0 coverage never provided.
+
+    Works in log-space for numerical stability over long horizons.
+    """
+
+    def __init__(self, epsilon: float = 0.5, alarm_delta: float = 0.01) -> None:
+        if not 0.0 < epsilon < 1.0:
+            raise ValueError("epsilon must be in (0, 1)")
+        if not 0.0 < alarm_delta < 1.0:
+            raise ValueError("alarm_delta must be in (0, 1)")
+        self.epsilon = epsilon
+        self.alarm_delta = alarm_delta
+        self._log_m = 0.0
+        self._t = 0
+        self._log_max = 0.0
+
+    def update(self, p: float) -> float:
+        """Bet on one conformal p-value; return the current martingale value."""
+        e = conformal_e_value(p, self.epsilon)
+        self._log_m += math.log(max(e, 1e-300))
+        self._log_max = max(self._log_max, self._log_m)
+        self._t += 1
+        return self.value
+
+    @property
+    def value(self) -> float:
+        return math.exp(self._log_m)
+
+    @property
+    def running_max(self) -> float:
+        return math.exp(self._log_max)
+
+    def alarm(self) -> bool:
+        """True once the martingale has ever crossed the Ville threshold
+        ``1/alarm_delta`` (evidence the exchangeability null is violated)."""
+        return self._log_max >= math.log(1.0 / self.alarm_delta)
+
+
+def score_ratio_e_value(
+    test_score: float,
+    cal_scores: list[float],
+    cal_weights: list[float] | None = None,
+    test_weight: float = 1.0,
+) -> float:
+    """Canonical conformal e-value (Balinsky & Balinsky 2024; arXiv 2503.13050
+    Eq. 4) for NON-NEGATIVE nonconformity scores::
+
+        E = S_test / mean_{cal u {test}} S
+
+    ``E[E] = 1`` under exchangeability, so ``P(E >= 1/alpha) <= alpha`` (Markov).
+    ``E ~ 1`` when the test score is typical -- an uninformative / trivially-wide
+    certificate produces no evidence -- and ``E >> 1`` when the test score is
+    anomalously large (a stressed-tight regime or an outright violation). This is
+    the "collapses toward the null when uninformative" diagnostic. The weighted
+    mean uses the age-weights (with the test point weighted ``test_weight``), so
+    it inherits the non-exchangeable weighting the rest of the module uses.
+    """
+    if test_score < 0.0:
+        raise ValueError("score_ratio_e_value needs non-negative scores")
+    n = len(cal_scores)
+    w = [1.0] * n if cal_weights is None else list(cal_weights)
+    if len(w) != n:
+        raise ValueError("cal_weights length must match cal_scores")
+    wsum = sum(w) + test_weight
+    if wsum <= 0.0:
+        return 1.0
+    wmean = (sum(wi * s for wi, s in zip(w, cal_scores)) + test_weight * test_score) / wsum
+    if wmean <= 0.0:
+        return 1.0  # all scores zero: no evidence
+    return test_score / wmean
+
+
+def residual_drift_score(recent_scores: list[float], cal_scores: list[float]) -> float:
+    """DASC drift magnitude ``D_t`` (arXiv 2606.15953, Sec. 5): the 1-D
+    Wasserstein-1 distance between the recent-window and calibration score
+    distributions. Larger = more distribution drift.
+
+    A MONITORING signal only -- it pairs with :class:`ConformalTestMartingale`
+    for a drift dashboard. It is deliberately NOT wired into the certificate's
+    coverage weights: DASC's coverage theorem is not distribution-free (it depends
+    on unknown Lipschitz/mismatch constants), and gating the calibration weights
+    on a label-dependent drift score would forfeit CERT-FLOW's hard
+    LB <= OPT <= UB guarantee. Kept as an observable instead.
+    """
+    if not recent_scores or not cal_scores:
+        return 0.0
+    try:
+        from scipy.stats import wasserstein_distance
+    except Exception:  # scipy always present as a core dep, but stay defensive
+        # Fallback: |mean difference| is a lower bound on W1.
+        return abs(sum(recent_scores) / len(recent_scores)
+                   - sum(cal_scores) / len(cal_scores))
+    return float(wasserstein_distance(recent_scores, cal_scores))
+
+
+def effective_sample_size(weights: list[float]) -> float:
+    """Kish effective sample size ``n_eff = (sum w)^2 / sum w^2`` (DASC ``n_eff,t``
+    with normalized weights reduces to ``1 / sum w_norm^2``). Small ``n_eff``
+    warns that the weighted quantile rests on few effective samples -- a
+    fragility signal for the drift dashboard."""
+    s1 = sum(weights)
+    s2 = sum(w * w for w in weights)
+    if s2 <= 0.0:
+        return 0.0
+    return (s1 * s1) / s2

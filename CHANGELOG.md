@@ -4,6 +4,36 @@ All notable changes to CERT-FLOW are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Multi-agent certificate + a 2026 conformal upgrade layer. All new behavior is
+opt-in behind config flags / new classes; the default single-agent certificate
+and its guarantees are unchanged.
+
+### Added
+- **Additive multi-agent certificate** (`certflow.team`): `additive_certificate`
+  + `TeamCertificate` (`sum LB <= sum OPT <= sum UB`, union-bound confidence) —
+  the one TEAM-CERT survivor, ported over a shared conformal store.
+- **LP-shift staleness** (`ConformalScorer(shift_model="lp", eps_lp, rho_lp)`,
+  arXiv 2502.14105): worst-case quantile `Quant(1-alpha+rho)+eps`. TV default.
+- **CIA path-sum calibration** (`CIACalibrator`, `CertPlanner.cia_path_certificate`,
+  arXiv 2408.10939): group-sum path calibration with symmetric-calibration overlap
+  handling and the age-weighted drift retrofit. Bonferroni default.
+- **SF-OGD ACI** (`ACITracker(mode="sf-ogd")`, arXiv 2302.07869): scale-free,
+  anytime step size. Fixed-gamma default.
+- **PASC joint per-edge calibration** (`PASCCalibrator`, arXiv 2605.18812): one
+  `max`-score quantile prices all edges jointly at `>= 1-alpha`, replacing the
+  `alpha/L` per-edge Bonferroni correction.
+- **Testability layer** — making the pinned-at-1.0 coverage observable:
+  `conformal_p_value` (WATCH Eq. 9), `ConformalTestMartingale` (WATCH, arXiv
+  2505.04608; Ville alarm + tightness stress test), `conformal_e_value` /
+  `score_ratio_e_value` / `merge_e_values` (arXiv 2503.13050).
+- **Drift diagnostics** (from DASC, arXiv 2606.15953, as observables only —
+  DASC's coverage bound is not distribution-free): `residual_drift_score`
+  (1-D Wasserstein `D_t`), `effective_sample_size` (Kish `n_eff`).
+- `docs/results/multiagent.md`, `docs/related-work-2026.md` (positioning vs
+  arXiv 2601.03629 + the adopted machinery).
+
 ## [1.0.2] - 2026-06-10
 
 Packaging and serialization fixes for the freshly published library.

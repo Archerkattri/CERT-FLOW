@@ -23,7 +23,21 @@ Submodules: conformal (quantile machinery), cert (the planner loop), sensing
 (worlds and graphs), harness / episodes / oracle (experiment infrastructure).
 """
 from certflow.cert import CertPlanner, PlannerConfig
-from certflow.conformal import ACITracker, ConformalScorer
+from certflow.conformal import (
+    ACITracker,
+    CIACalibrator,
+    CIAResult,
+    ConformalScorer,
+    ConformalTestMartingale,
+    PASCCalibrator,
+    PASCResult,
+    conformal_e_value,
+    conformal_p_value,
+    effective_sample_size,
+    merge_e_values,
+    residual_drift_score,
+    score_ratio_e_value,
+)
 from certflow.team import TeamCertificate, additive_certificate
 from certflow.types import Certificate, EdgeBelief, World
 
@@ -31,13 +45,24 @@ __version__ = "1.0.2"
 
 __all__ = [
     "ACITracker",
+    "CIACalibrator",
+    "CIAResult",
     "CertPlanner",
     "Certificate",
     "ConformalScorer",
+    "ConformalTestMartingale",
     "EdgeBelief",
+    "PASCCalibrator",
+    "PASCResult",
     "PlannerConfig",
     "TeamCertificate",
     "World",
     "additive_certificate",
+    "conformal_e_value",
+    "conformal_p_value",
+    "effective_sample_size",
+    "merge_e_values",
+    "residual_drift_score",
+    "score_ratio_e_value",
     "__version__",
 ]
