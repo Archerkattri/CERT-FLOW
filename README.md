@@ -110,8 +110,23 @@ you opt into. Derivations in
   Bonferroni-vs-PASC width gap shows up **only under positive edge correlation**
   (ρ=0.9, L=20: Bonferroni over-covers 0.97, PASC holds ~0.91 at **16.5% less
   width**). Under independence PASC barely helps — stated, not hidden.
+- **Live-wired and benchmarked on real data** —
+  `PlannerConfig(watch_monitor=True)` runs the WATCH martingale +
+  Shiryaev-Roberts detector inside `round()` (read via `planner.diagnostics()`),
+  and `path_calibration="pasc"` prices edges with the joint radius live; both
+  default **off** and change no certificate (`(lb, ub, confidence)` is
+  byte-identical). On **real METR-LA** (20 seeds × 288 rounds) the certificate
+  holds at **0.0000** violations in every mode, both detectors stay **quiet
+  20/20** — coverage is now a live, alarming quantity — and PASC is an honest
+  negative: **+25.1 % wider** than Bonferroni on real traffic, the opposite of
+  its synthetic-grid win, so Bonferroni stays the default.
+  ([docs/results/live-wiring-2026.md](docs/results/live-wiring-2026.md))
 
-With these in, the full suite is **239 passing** (the default path unchanged).
+<p align="center"><img src="assets/live_wiring_2026.png" alt="Left: certified width on real METR-LA — the PASC joint radius is 25% wider than the default Bonferroni, both at zero violations. Right: the Shiryaev-Roberts validity monitor stays quiet under the correct model and fires 7 rounds after an injected regime shift." width="100%"/></p>
+
+<p align="center"><em>The 2026 layer on real data. <b>Left</b> — on METR-LA the joint PASC radius is <b>+25.1 % wider</b> than the default per-edge Bonferroni (both at 0.0000 violations): long paths starve the length-L block quantile, so PASC keeps its experimental flag. <b>Right</b> — soundness is now <b>observable</b>: the Shiryaev-Roberts statistic stays below its alarm threshold under the correctly-modelled null (quiet on 20/20 real seeds) and crosses it ~7 rounds after an injected regime shift, at zero cost to the certificate. Regenerate with <code>scripts/viz_gen/live_wiring_fig.py</code>.</em></p>
+
+With these in, the full suite is **250 passing** (the default path unchanged).
 
 ## Quickstart
 

@@ -31,6 +31,33 @@ and its guarantees are unchanged.
 - **Drift diagnostics** (from DASC, arXiv 2606.15953, as observables only —
   DASC's coverage bound is not distribution-free): `residual_drift_score`
   (1-D Wasserstein `D_t`), `effective_sample_size` (Kish `n_eff`).
+- **Live round-2 wiring** — the round-2 calibrators, previously standalone, are
+  now wired into the live `round()` loop behind `PlannerConfig` flags (all
+  default **OFF**; on/off produce a byte-identical `(lb, ub, confidence)`
+  stream):
+  - `watch_monitor=True` (+ `sr_threshold`): every new weighted conformal
+    p-value inside `ingest_observation` feeds `planner.watch`
+    (`ConformalTestMartingale`) **and** `planner.sr` (`ShiryaevRobertsDetector`);
+    `planner.diagnostics()` exposes the martingale value/alarm, SR peak/alarm,
+    the recent-vs-buffer residual drift score and the age-weights' effective
+    sample size. Purely observational — no certificate, no pricing change.
+  - `path_calibration="pasc"`: `_q()` prices edges with the PASC **joint** radius
+    live, falling back to Bonferroni during warm-up / while α-annealing pins the
+    level at 1. Uses the **signed** block-max, not `abs()`: the live buffer
+    already stores the drift-adjusted score `|obs−ĉ| − ρ·age`, so `abs()` (as the
+    standalone `pasc_edge_radius` applies to *raw* residuals) would double-count
+    the drift subtraction and inflate the radius.
+  - `scripts/run_live_wiring.py`, `tests/test_live_wiring.py`.
+- **Real METR-LA benchmark of the wiring** (20 seeds × 288 rounds = one replay
+  day each; oracle = exact Dijkstra on the recording): **0.0000** coverage
+  violations in every mode; `watch_monitor` **quiet 20/20** on both detectors —
+  the pinned-at-1.0 coverage is now a live, alarming quantity at zero cost
+  (WATCH HOLDS on real data). PASC is an **honest negative**: **+25.1 %** wider
+  median width than Bonferroni on real traffic (8797 → 11007 s), the opposite of
+  its 4.5 % synthetic-grid win — long optimistic paths (L ≈ 14–18) starve the
+  length-L block quantile, while Bonferroni's full-pooled per-edge quantile stays
+  better-resolved. Bonferroni stays default; PASC keeps its experimental flag.
+  Full suite **250 passed**. (`docs/results/live-wiring-2026.md`)
 - `docs/results/multiagent.md`, `docs/related-work-2026.md` (positioning vs
   arXiv 2601.03629 + the adopted machinery).
 

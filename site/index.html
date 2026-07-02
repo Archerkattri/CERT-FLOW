@@ -187,6 +187,7 @@
     <a href="#method">Method</a>
     <a href="#videos">Videos</a>
     <a href="#results">Results</a>
+    <a href="#upgrades">2026</a>
     <a href="#theory">Theory</a>
     <a href="#boundaries">Boundaries</a>
     <a class="navcta" href="https://github.com/Archerkattri/CERT-FLOW">GitHub ↗</a>
@@ -225,7 +226,7 @@
       <a class="btn ghost" href="#videos">Watch it ▾</a>
     </div>
     <div class="metabar">
-      <span><b>227</b> tests</span><span><b>coverage 1.000</b> measured</span>
+      <span><b>250</b> tests</span><span><b>coverage 1.000</b> measured</span>
       <span><b>2</b> real cities + off-road</span><span><b>T1–T7</b> proven</span><span><b>MIT</b></span>
     </div>
   </div>
@@ -336,6 +337,30 @@
   </div>
 </section>
 
+<section id="upgrades">
+  <div class="wrap reveal">
+    <p class="eyebrow">The 2026 layer · opt-in</p>
+    <h2>Coverage you can watch — not just claim.</h2>
+    <p class="lead">A certificate pinned at coverage 1.000 hides an awkward truth: the claim was <em>untestable</em>. The 2026 layer turns it into a <b>live, alarming quantity</b> — a WATCH conformal test-martingale and a Shiryaev–Roberts change-detector run alongside the planner and fire the moment the staleness model the proof leans on actually breaks. Every piece is <b>off by default</b>, a config flag or a new class, and touches no certificate: the <span class="mono">(LB, UB, confidence)</span> stream is byte-identical on or off.</p>
+    <figure style="margin-top:36px">
+      <img src="../assets/live_wiring_2026.png" alt="Left panel: certified width on real METR-LA traffic — the PASC joint radius is 25.1 percent wider than the default Bonferroni, both at zero coverage violations. Right panel: the Shiryaev–Roberts validity statistic stays quiet under the correctly-modelled null on real data and crosses its alarm threshold seven rounds after an injected regime shift.">
+      <figcaption><b>The layer on real METR-LA (20 seeds × 288 rounds).</b> <b>Left</b> — the joint PASC radius lands <b>+25.1% wider</b> than the default per-edge Bonferroni, both at 0.0000 violations: long optimistic paths starve the block quantile, so PASC stays experimental and Bonferroni stays the default. <b>Right</b> — soundness is now <b>observable</b>: the Shiryaev–Roberts monitor is quiet on <b>20/20</b> real replay days and catches an injected regime shift ~7 rounds later, at zero cost to the certificate.</figcaption>
+    </figure>
+    <div class="stats" style="margin-top:36px">
+      <div class="card"><div class="dir">real METR-LA</div><div class="big">0.0000</div><div class="lab">coverage violations, every mode — 20 seeds × 288 rounds against the recording's true costs</div></div>
+      <div class="card"><div class="dir">validity monitor</div><div class="big">20/20</div><div class="lab">replay days quiet — WATCH martingale + Shiryaev–Roberts, zero false alarms</div></div>
+      <div class="card"><div class="dir">honest negative</div><div class="big">+25.1%</div><div class="lab">PASC width vs Bonferroni on real traffic — opposite of its synthetic-grid win; kept experimental</div></div>
+      <div class="card"><div class="dir">cost to certificate</div><div class="big">0</div><div class="lab">the monitor is purely observational — identical (LB, UB, confidence) stream, on or off</div></div>
+    </div>
+    <div class="verdict" style="margin-top:22px">
+      <span class="pill win">soundness HOLDS on real data</span>
+      <span class="pill dir">no certificate change</span>
+      <span class="pill lose">PASC wider on real paths</span>
+    </div>
+    <p class="note">Wired behind <span class="mono">PlannerConfig(watch_monitor=True)</span> and <span class="mono">path_calibration="pasc"</span>, read live via <span class="mono">planner.diagnostics()</span>; full write-up in <a href="https://github.com/Archerkattri/CERT-FLOW/blob/main/docs/results/live-wiring-2026.md">docs/results/live-wiring-2026.md</a>. The program's meta-lesson, kept honest: the <b>soundness</b> layer survives real data; the width-tightening claim does not.</p>
+  </div>
+</section>
+
 <section id="theory">
   <div class="wrap reveal">
     <p class="eyebrow">The theory</p>
@@ -378,7 +403,7 @@ git clone https://github.com/Archerkattri/CERT-FLOW
 cd CERT-FLOW
 python -m venv cert_env &amp;&amp; <span class="k">source</span> cert_env/bin/activate
 pip install -e <span class="k">".[dev,fast]"</span> pandas h5py tables
-pytest   <span class="c"># 227 tests · core sweep ≈ 100 s</span></pre>
+pytest   <span class="c"># 250 tests · core sweep ≈ 100 s</span></pre>
         <p class="muted" style="font-size:14.5px">Every figure and table regenerates from a script in <span class="mono">scripts/</span>; results live in <span class="mono">docs/results/</span>.</p>
       </div>
       <div>
