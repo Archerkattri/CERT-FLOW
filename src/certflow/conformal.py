@@ -935,3 +935,131 @@ def effective_sample_size(weights: list[float]) -> float:
     if s2 <= 0.0:
         return 0.0
     return (s1 * s1) / s2
+
+
+class ShrinkLicense:
+    """Test-then-tighten license: an ANYTIME-VALID, a-posteriori license to
+    report a tighter "Tier-2" radius ALONGSIDE (never instead of) the
+    distribution-free Tier-1 certificate. It converts the WATCH observability
+    layer into measured width reduction with an explicit, honest validity claim.
+
+    For each candidate shrink factor ``k`` in ``grid`` it maintains an
+    anytime-valid upper confidence sequence (CS) on the mean violation rate of
+    the ``k``-shrunk per-edge interval, fed the stream of Bernoulli outcomes
+    ``x_t(k) = 1{fresh score_t > k * radius_t}`` where ``radius_t`` is the full
+    per-edge radius (``q + rho * age``) the planner would have priced that edge
+    with at that moment. The CS is the hedged/betting capital process of
+    Waudby-Smith & Ramdas (2023, "Estimating means of bounded random variables
+    by betting") for bounded means: with a predictable plug-in betting fraction
+    ``lambda_t`` (a function of past outcomes only, so the same value at every
+    candidate mean ``m``), the lower-tail capital
+    ``K_t^-(m) = prod_{i<=t} (1 + lambda_i (m - x_i))`` is, at the TRUE mean, a
+    non-negative martingale with ``K_0 = 1``. Ville's inequality gives
+    ``P(sup_t K_t^-(mu) >= 1/delta) <= delta``, so the upper edge of
+    ``{m : K_t^-(m) < 1/delta}`` is a time-uniform upper bound on ``mu``
+    (``K_t^-`` is monotone non-decreasing in ``m`` for bounded ``x``, so the edge
+    is a single crossing point, tracked on a fixed ``m``-grid).
+
+    THE CLAIM (do not soften): The licensed radius carries an anytime-valid,
+    time-uniform upper bound on the OBSERVED deployment stream's violation rate
+    (P(ucb ever under-covers the running mean) <= delta by Ville). Under drift
+    this is an a-posteriori empirical claim about the deployment so far, together
+    with an alarmable monitor -- it is NOT an a-priori distribution-free guarantee
+    for the next round; that guarantee remains with the Tier-1 certificate. The
+    license self-revokes: under a regime shift, violations inflate the CS and
+    licensed_k returns to 1.0.
+    """
+
+    def __init__(
+        self,
+        grid: tuple[float, ...] = (0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+        delta: float = 0.05,
+        n_min: int = 50,
+        m_grid: int = 200,
+        c: float = 0.5,
+    ) -> None:
+        import numpy as _np
+
+        if not 0.0 < delta < 1.0:
+            raise ValueError("delta must be in (0, 1)")
+        if n_min < 1:
+            raise ValueError("n_min must be >= 1")
+        if not 0.0 < c < 1.0:
+            raise ValueError("c must be in (0, 1)")
+        if m_grid < 2:
+            raise ValueError("m_grid must be >= 2")
+        self.grid = tuple(sorted(grid))
+        self.delta = float(delta)
+        self.n_min = int(n_min)
+        self.c = float(c)  # betting-fraction cap: |lambda| <= c keeps every
+        # capital factor 1 + lambda*(m - x) strictly positive for x in {0,1},
+        # m in (0,1) (worst case 1 - c > 0).
+        self._log_thresh = math.log(1.0 / delta)
+        # Candidate mean values in (0, 1) at which each per-k capital process is
+        # tracked; the UCB is the smallest m whose lower-tail capital has crossed
+        # the Ville threshold (evidence the mean is below m).
+        self._m = _np.linspace(1.0 / (m_grid + 1), m_grid / (m_grid + 1), m_grid)
+        self._logK: dict[float, "_np.ndarray"] = {
+            k: _np.zeros(m_grid) for k in self.grid
+        }
+        self._n = {k: 0 for k in self.grid}
+        self._sum = {k: 0.0 for k in self.grid}    # running sum of outcomes
+        self._sumsq = {k: 0.0 for k in self.grid}  # sum (x - muhat_prev)^2
+
+    def update(self, violations) -> None:
+        """Absorb one round's outcomes. ``violations`` is a dict ``{k: x_t(k)}``
+        or a sequence aligned with ``grid``; each ``x_t(k)`` is the Bernoulli
+        ``1{fresh score > k * radius}`` for that shrink factor."""
+        import numpy as _np
+
+        items = (
+            violations.items() if hasattr(violations, "items")
+            else zip(self.grid, violations)
+        )
+        for k, x in items:
+            arr = self._logK.get(k)
+            if arr is None:
+                continue
+            x = float(x)
+            n_prev = self._n[k]
+            # Predictable plug-in (WSR 2023, eq. 3.9-3.10): mean/variance from
+            # PAST outcomes only, with a 1/2, 1/4 prior; lambda_t is thus a
+            # predictable bet, so K_t^-(mu) stays a martingale at the true mean.
+            muhat = (0.5 + self._sum[k]) / (1.0 + n_prev)
+            sigma2 = (0.25 + self._sumsq[k]) / (1.0 + n_prev)
+            t = n_prev + 1
+            lam = math.sqrt(
+                2.0 * self._log_thresh / (sigma2 * t * math.log(t + 1.0))
+            )
+            lam = min(lam, self.c)
+            arr += _np.log1p(lam * (self._m - x))
+            self._sum[k] += x
+            self._sumsq[k] += (x - muhat) ** 2
+            self._n[k] = t
+
+    def ucb(self, k: float) -> float:
+        """Current anytime-valid upper bound on the violation mean for factor
+        ``k`` (the smallest m whose lower-tail capital has crossed 1/delta).
+        Returns 1.0 while no candidate is rejected (nothing tighter licensed)."""
+        import numpy as _np
+
+        arr = self._logK.get(k)
+        if arr is None or self._n[k] <= 0:
+            return 1.0
+        crossed = arr >= self._log_thresh
+        if not bool(crossed.any()):
+            return 1.0
+        return float(self._m[int(_np.argmax(crossed))])
+
+    def n(self, k: float) -> int:
+        return self._n.get(k, 0)
+
+    def licensed_k(self, alpha_target: float) -> float:
+        """Smallest ``k`` with ``n >= n_min`` and ``ucb(k) <= alpha_target``,
+        else 1.0 (no tightening licensed / license revoked)."""
+        for k in self.grid:  # ascending: smallest (tightest) first
+            if k >= 1.0:
+                break
+            if self._n[k] >= self.n_min and self.ucb(k) <= alpha_target:
+                return k
+        return 1.0

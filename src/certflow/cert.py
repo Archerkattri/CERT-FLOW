@@ -16,6 +16,7 @@ from certflow.conformal import (
     ConformalScorer,
     ConformalTestMartingale,
     ShiryaevRobertsDetector,
+    ShrinkLicense,
     conformal_p_value,
     effective_sample_size,
     path_alpha_edge,
@@ -273,6 +274,23 @@ class PlannerConfig:
     sr_threshold: float = 100.0      # Shiryaev-Roberts ARL threshold
     watch_window: int = 50           # recent-window size for the drift score
 
+    # --- Test-then-tighten license (ShrinkLicense) ----------------------------
+    # shrink_license=True maintains, per shrink factor k in shrink_grid, an
+    # anytime-valid upper confidence sequence on the OBSERVED per-edge violation
+    # rate of the k-shrunk full radius (Waudby-Smith & Ramdas 2023 betting CS,
+    # Ville time-uniform at level shrink_delta). It LICENSES a tighter Tier-2
+    # radius k*radius ALONGSIDE (never instead of) the Tier-1 certificate:
+    # licensed_k is the smallest k whose UCB <= shrink_alpha_target after
+    # shrink_n_min samples, else 1.0 (self-revoking under a regime shift). It
+    # changes NO certificate and NO pricing -- purely observational, surfaced in
+    # diagnostics() (licensed_k, per-k ucb+n, and the shadow shrunk gap). See
+    # conformal.ShrinkLicense for the exact (honest) validity claim.
+    shrink_license: bool = False
+    shrink_grid: tuple = (0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+    shrink_delta: float = 0.05
+    shrink_n_min: int = 50
+    shrink_alpha_target: float | None = None  # None -> use alpha_prime
+
 
 def recommended_config(**overrides) -> "PlannerConfig":
     """The best-known configuration from the full ablation/benchmark program:
@@ -364,6 +382,17 @@ class CertPlanner:
         self.sr = ShiryaevRobertsDetector(
             threshold=config.sr_threshold, epsilon=config.watch_epsilon,
         )
+        # Test-then-tighten license (ShrinkLicense). Always constructed so
+        # planner.shrink exists; only FED when cfg.shrink_license. Purely
+        # observational: no pricing effect, certificate untouched.
+        self.shrink = ShrinkLicense(
+            grid=tuple(config.shrink_grid),
+            delta=config.shrink_delta,
+            n_min=config.shrink_n_min,
+        )
+        # last per-edge quantile the planner priced with (q_eff = lambda*q); the
+        # shrink outcome uses radius_t = q_edge + rho*age. inf = not yet priced.
+        self._shrink_q_edge = math.inf
         self._recent_scores: list[float] = []  # rolling window for the drift score
         self.sense_spend = 0.0
         self._round_idx = 0
@@ -848,7 +877,7 @@ class CertPlanner:
         w = self.scorer._weights(self.t)
         cal = [s.residual for s in self.scorer._buf]
         recent = self._recent_scores[-self.cfg.watch_window:]
-        return dict(
+        out = dict(
             watch_value=self.watch.value,
             watch_running_max=self.watch.running_max,
             watch_alarm=self.watch.alarm(),
@@ -859,6 +888,43 @@ class CertPlanner:
             effective_sample_size=effective_sample_size(w),
             n_scores=len(cal),
         )
+        # Tier-2 shrink license (ShrinkLicense): observational only, never feeds
+        # the certificate. licensed_k, the per-k upper CS bound + sample counts,
+        # and the SHADOW gap the current certificate would carry if every
+        # per-edge radius were multiplied by licensed_k.
+        alpha_t = (
+            self.cfg.shrink_alpha_target
+            if self.cfg.shrink_alpha_target is not None
+            else self.cfg.alpha_prime
+        )
+        lk = self.shrink.licensed_k(alpha_t)
+        # shrunk_lb/ub: APPROXIMATION -- the incumbent path is held FIXED and its
+        # per-edge shadow bounds are recomputed at k*(q_edge + rho*age) using the
+        # last-priced quantile; it does NOT re-run the shortest-path searches
+        # under the shrunk metric, so it can differ from a full shrunk re-plan.
+        inc_edges = (
+            path_edges(self._prev_incumbent) if self._prev_incumbent else []
+        )
+        shrunk_lb = shrunk_ub = float("nan")
+        if inc_edges and math.isfinite(self._shrink_q_edge):
+            lb_s = ub_s = 0.0
+            for e in inc_edges:
+                b = self.beliefs[e]
+                half_k = lk * (self._shrink_q_edge + b.rho * b.age(self.t))
+                lb_s += max(self.cfg.cost_floor, b.c_hat - half_k)
+                ub_s += b.c_hat + half_k
+            shrunk_lb, shrunk_ub = lb_s, ub_s
+        out.update(
+            licensed_k=lk,
+            shrink_ucb={k: self.shrink.ucb(k) for k in self.cfg.shrink_grid},
+            shrink_n={k: self.shrink.n(k) for k in self.cfg.shrink_grid},
+            shrunk_lb=shrunk_lb,
+            shrunk_ub=shrunk_ub,
+            shrunk_gap=(
+                shrunk_ub - shrunk_lb if shrunk_lb == shrunk_lb else float("nan")
+            ),
+        )
+        return out
 
     def round(self) -> tuple[Certificate, Edge | None]:
         """One replanning round. Returns the certificate and the sensed edge."""
@@ -885,6 +951,10 @@ class CertPlanner:
             lb_edges = path_edges(p_lb)
             L = max(len(lb_edges), 1)
         self._last_L = L
+        # cache the full per-edge radius term for the shrink license (the width
+        # the planner is pricing with this round); inf during warm-up -> the
+        # license update is skipped until a finite quantile exists.
+        self._shrink_q_edge = q_eff if math.isfinite(q) else math.inf
         lo, up = self._cache_lo, self._cache_up
 
         # stabilized sensing target (see PlannerConfig.stabilize_sensing)
@@ -1319,6 +1389,23 @@ class CertPlanner:
                 self._recent_scores.append(score)
                 if len(self._recent_scores) > self.cfg.watch_window:
                     del self._recent_scores[0]
+            # Test-then-tighten license (ShrinkLicense): per shrink factor k, the
+            # Bernoulli outcome x_t(k) = 1{|obs - c_hat| > k * radius_t} on the
+            # UNADJUSTED deviation vs the k-shrunk FULL per-edge radius
+            # radius_t = q_edge + rho*age (the width the planner is pricing with,
+            # cached in round()). b.c_hat/b.age here are still the pre-update
+            # values, i.e. exactly the price this edge carried this moment. Feeds
+            # an anytime-valid upper CS on the observed violation rate. Purely
+            # observational -- no pricing, no change to the emitted certificate.
+            # Skipped until a finite per-edge quantile has been priced (warm-up).
+            if self.cfg.shrink_license and math.isfinite(self._shrink_q_edge):
+                dev = abs(obs - b.c_hat)
+                radius = self._shrink_q_edge + b.rho * b.age(self.t)
+                if radius > 0.0:
+                    self.shrink.update(
+                        {k: 1.0 if dev > k * radius else 0.0
+                         for k in self.cfg.shrink_grid}
+                    )
             self.scorer.push(score, self.t)
             self.scorer.push_signed(obs - b.c_hat, self.t)
             self.cal_rho_a_max = max(self.cal_rho_a_max, b.rho * b.age(self.t))
