@@ -6,6 +6,8 @@ All notable changes to CERT-FLOW are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-02
+
 Multi-agent certificate + a 2026 conformal upgrade layer. All new behavior is
 opt-in behind config flags / new classes; the default single-agent certificate
 and its guarantees are unchanged.

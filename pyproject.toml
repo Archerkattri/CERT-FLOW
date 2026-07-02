@@ -1,6 +1,6 @@
 [project]
 name = "certflow"
-version = "1.0.2"
+version = "1.1.0"
 authors = [{name = "Krishi Attri", email = "krishiattriwork@gmail.com"}]
 license = {text = "MIT"}
 description = "Certified route planning under drifting costs: conformal LB<=OPT<=UB certificates, certificate-directed sensing, proof-gated preprocessing"

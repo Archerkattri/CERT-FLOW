@@ -42,7 +42,7 @@ from certflow.conformal import (
 from certflow.team import TeamCertificate, additive_certificate
 from certflow.types import Certificate, EdgeBelief, World
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 __all__ = [
     "ACITracker",
