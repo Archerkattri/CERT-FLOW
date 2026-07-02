@@ -23,6 +23,10 @@ certificate says the gap shrinks fastest.
 
 <p align="center"><img src="assets/overview.png" alt="One CERT round" width="92%"/></p>
 
+<p align="center"><img src="assets/animations/certified_corridor.gif" alt="CERT-FLOW running on a 20x20 drifting grid: the left panel shows true edge costs as a heatmap with the certified incumbent path and the edges sensed each round; the right panel grows the certified corridor LB <= OPT <= UB, with the true optimum drawn inside it every round." width="100%"/></p>
+
+<p align="center"><em><b>The whole loop, one look.</b> The real planner on a 20×20 drift grid (170 rounds). <b>Left</b> — true edge costs (heatmap), the certified incumbent path, and the gap-directed edges sensed each round. <b>Right</b> — the certified corridor grows over time: warm-up (certificate <b>invalid</b>) → valid (<code>LB ≤ OPT ≤ UB</code> brackets the true optimum, drawn inside) → drift moves costs → sensing holds the band. Coverage over the valid rounds is <b>115/115</b>, measured against exact Dijkstra. Regenerate: <code>scripts/viz_gen/certified_corridor.py</code>.</em></p>
+
 ## Why it's different
 
 | property | classical replanning (D\* Lite, AD\*) | exchangeable conformal (CIA) | 🏆 **CERT-FLOW** (wins) |
@@ -127,6 +131,40 @@ you opt into. Derivations in
 <p align="center"><em>The 2026 layer on real data. <b>Left</b> — on METR-LA the joint PASC radius is <b>+25.1 % wider</b> than the default per-edge Bonferroni (both at 0.0000 violations): long paths starve the length-L block quantile, so PASC keeps its experimental flag. <b>Right</b> — soundness is now <b>observable</b>: the Shiryaev-Roberts statistic stays below its alarm threshold under the correctly-modelled null (quiet on 20/20 real seeds) and crosses it ~7 rounds after an injected regime shift, at zero cost to the certificate. Regenerate with <code>scripts/viz_gen/live_wiring_fig.py</code>.</em></p>
 
 With these in, the full suite is **250 passing** (the default path unchanged).
+
+### Watch the monitor catch a broken model
+
+<p align="center"><img src="assets/animations/watch_alarm.gif" alt="The planner with watch_monitor=True on a grid whose costs surge mid-run. Left: the certificate band brackets the true optimum until the drift jump, when the optimum briefly escapes the band priced off stale costs. Right: the Shiryaev-Roberts statistic crawls flat under the correct model then explodes past its alarm threshold six rounds after the jump." width="100%"/></p>
+
+<p align="center"><em><b>Coverage you can watch.</b> The real planner with <code>watch_monitor=True</code> on a grid whose costs <b>surge mid-run</b> (the regime break from <code>tests/test_live_wiring.py</code>). <b>Left</b> — the band brackets the true optimum under the correct model; at the jump the optimum briefly <b>escapes</b> the band still priced off stale, cheap observations (vermillion) — the silent staleness the monitor exists to surface. <b>Right</b> — the Shiryaev–Roberts statistic crawls flat (median R ≈ 1.4) then <b>explodes past its alarm threshold ~6 rounds after the jump</b>, at zero cost to the certificate. Regenerate: <code>scripts/viz_gen/watch_alarm.py</code>.</em></p>
+
+<p align="center"><img src="assets/animations/pasc_vs_bonferroni.png" alt="Diverging bar chart: PASC certified width vs default Bonferroni. On the synthetic 4x4 grid PASC is 4.5 percent tighter; on real METR-LA traffic PASC is 25.1 percent wider. Both at zero coverage violations." width="88%"/></p>
+
+<p align="center"><em><b>PASC, both truths in one chart.</b> The joint per-edge radius is <b>−4.5% tighter</b> on the short-path synthetic grid (L≈6) and <b>+25.1% wider</b> on long real-traffic paths (L≈14–18) — both at <b>0.0000</b> coverage violations, so it is purely a width story and the sign flips. This is why Bonferroni stays the default and PASC keeps its experimental flag. Regenerate: <code>scripts/viz_gen/pasc_vs_bonferroni.py</code>.</em></p>
+
+## Verdict scoreboard — where CERT-FLOW wins, and where it doesn't
+
+One honest table, every number traced to a committed result doc (linked). Plain
+verdict words; the `FAIL`/`WEAK` rows stay in.
+
+| Area | CERT-FLOW | Best alternative | Verdict |
+|---|---|---|---|
+| **Coverage under real drift** | certificate coverage **1.000**, every condition | AD\*/ARA\* validity **0.02–0.07** on real METR-LA | **PASS** — decisively better; validity is the axis a route certificate lives on ([extern-baselines](docs/results/extern-baselines.md)) |
+| **vs CIA** (closest conformal) | holds **0.95–1.00** across every staleness gap | CIA collapses **0.95 → 0.20** under staleness | **PASS** on validity — honest width cost, up to **~49×** wider at 24 h ([cia-comparison](docs/results/cia-comparison.md)) |
+| **Interval tightness** | valid but **1–2 orders wider**; PASC **+25.1%** on real traffic | AD\*-semantics intervals narrow (but invalid) | **WEAK** — honest negative; soundness costs width ([extern-baselines](docs/results/extern-baselines.md), [live-wiring](docs/results/live-wiring-2026.md)) |
+| **Sensing** | objective-matched hybrid regret **−0.12** ≈ clairvoyant oracle; pure gap-directed **2.35** | CTP-RS-style VOI **0.48** | **GOOD** (hybrid) **/ FAIL** (pure) — hybrid wins *and* carries a certificate VOI lacks ([extern-baselines §B](docs/results/extern-baselines.md)) |
+| **Static-grid / continental speed** | 1.5 ms scratch · **3.7 ms** per certified round | JPS+ **~4 µs** · Hub Labels **0.56 µs** | **FAIL** — 1000–10000× slower, out of scope by design ([published-speed](docs/results/published-speed-comparison.md)) |
+| **Bounded cost-change absorption** | **0.015–0.34 ms** | CRP **~1 s** recustomization | **PASS** — orders faster on the "costs moved, keep planning" operation ([published-speed](docs/results/published-speed-comparison.md)) |
+| **Observability** (WATCH / SR) | quiet **20/20** real seeds; injected shift caught in **~6–7 rounds** | no competitor ships this | **PASS** — novel; coverage is now a live, alarming quantity ([live-wiring](docs/results/live-wiring-2026.md)) |
+| **Multi-agent** | additive fleet certificate **sound + exact** (survives) | joint TEAM-CERT (tighter on synthetic only) | **MIXED** — additive ports; joint **falsified** on real METR-LA ([multiagent](docs/results/multiagent.md)) |
+
+**Read it straight:** CERT-FLOW wins **soundness** (coverage, CIA-collapse,
+bounded-change absorption) and **observability** (WATCH/SR) decisively, is
+**honest about width** (wide-and-sound beats narrow-and-wrong on stale maps, but
+it *is* wide), and **loses on static-map raw speed by design** — that regime is
+what JPS+/Hub Labels own and CERT-FLOW is not for. The meta-lesson, kept: the
+**certify/verify** layer survives real data; the **width-tightening** claim (PASC)
+does not.
 
 ## Quickstart
 
