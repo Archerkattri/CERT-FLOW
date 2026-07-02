@@ -14,8 +14,14 @@ from certflow.conformal import (
     ACITracker,
     AgeBinnedScorer,
     ConformalScorer,
+    ConformalTestMartingale,
+    ShiryaevRobertsDetector,
+    conformal_p_value,
+    effective_sample_size,
     path_alpha_edge,
     path_confidence,
+    residual_drift_score,
+    weighted_group_quantile,
 )
 from certflow.fastgraph import FastDStarLite, FlatGraph
 from certflow.sensing import baseline_select, near_optimal_alternatives, path_edges, select_observation
@@ -228,14 +234,44 @@ class PlannerConfig:
     aci_mode: str = "fixed"
     aci_eta: float = 0.1
 
-    # --- Path-level calibration (CIA, arXiv 2408.10939) -----------------------
+    # --- Path-level calibration (CIA, arXiv 2408.10939; PASC, arXiv 2605.18812)-
     # path_calibration="bonferroni" (default) is the per-edge Bonferroni UB.
     # "cia" is the experimental group-sum path calibration exposed via
     # CertPlanner.cia_path_certificate(); it does NOT change round()'s default
     # certificate. rho_w for the CIA drift retrofit is taken from cfg.rho_w.
+    #
+    # "pasc" (experimental, live-wired 2026): _q() prices edges with the PASC
+    # JOINT per-edge radius instead of the per-edge Bonferroni quantile. The
+    # radius Q is the age-weighted (1-alpha_path) quantile of the per-block
+    # MAX |score|, blocks of length path_len drawn newest-first from the
+    # absolute-score buffer (the same construction as pasc_edge_radius()). A
+    # single joint quantile replaces the alpha/L per-edge union bound, so it is
+    # tighter-or-equal while still delivering joint per-edge coverage >=
+    # 1-alpha_path. HONESTY: PASC's joint guarantee assumes the calibration
+    # BLOCKS are exchangeable with the fresh path (block exchangeability); the
+    # age-weighted retrofit inherits exactly the same weighted-coverage argument
+    # (Barber et al. 2023 Thm 2) as the rest of this module -- no stronger, no
+    # weaker. Until the buffer holds a full block at the required level the
+    # radius is +inf and _q() falls back to Bonferroni (warm-up, unchanged).
     path_calibration: str = "bonferroni"
     cia_symmetric: bool = False
     cia_stratify: bool = False
+
+    # --- Live validity monitor (WATCH, arXiv 2505.04608) ----------------------
+    # watch_monitor=True feeds every new (weighted) conformal p-value into a
+    # ConformalTestMartingale (planner.watch) AND a ShiryaevRobertsDetector
+    # (planner.sr), owned by the planner, turning the pinned-at-1.0 coverage
+    # into an OBSERVABLE, alarming quantity. It changes NO certificate and NO
+    # pricing -- purely diagnostic. planner.diagnostics() exposes the martingale
+    # value/alarm, the SR peak/alarm, the recent-vs-buffer residual drift score
+    # (W1) and the calibration weights' effective sample size. Ville's
+    # inequality bounds the martingale false-alarm probability at
+    # watch_alarm_delta; sr_threshold is the SR false-alarm ARL target.
+    watch_monitor: bool = False
+    watch_epsilon: float = 0.5       # power betting exponent (bets on small p)
+    watch_alarm_delta: float = 0.01  # Ville false-alarm budget for planner.watch
+    sr_threshold: float = 100.0      # Shiryaev-Roberts ARL threshold
+    watch_window: int = 50           # recent-window size for the drift score
 
 
 def recommended_config(**overrides) -> "PlannerConfig":
@@ -318,6 +354,17 @@ class CertPlanner:
             alpha_target=config.alpha_prime, gamma=config.gamma_aci,
             mode=config.aci_mode, eta=config.aci_eta,
         )
+        # Live validity monitor (WATCH, arXiv 2505.04608). Always constructed so
+        # planner.watch / planner.sr exist; only FED when cfg.watch_monitor. The
+        # martingale/detector consume the per-round weighted conformal p-values
+        # pushed in ingest_observation. Purely observational: no pricing effect.
+        self.watch = ConformalTestMartingale(
+            epsilon=config.watch_epsilon, alarm_delta=config.watch_alarm_delta,
+        )
+        self.sr = ShiryaevRobertsDetector(
+            threshold=config.sr_threshold, epsilon=config.watch_epsilon,
+        )
+        self._recent_scores: list[float] = []  # rolling window for the drift score
         self.sense_spend = 0.0
         self._round_idx = 0
         self._obs_count: dict[Edge, int] = {}  # real observations per edge
@@ -702,6 +749,20 @@ class CertPlanner:
                 supportable = min(1.0, path_len * alpha_edge_min)
                 alpha_path = max(alpha_path, supportable)
                 self._alpha_claim = max(self._alpha_prime_eff, supportable)
+        if self.cfg.path_calibration == "pasc" and 0.0 < alpha_path < 1.0:
+            # PASC joint per-edge radius (arXiv 2605.18812): one age-weighted
+            # (1-alpha_path) quantile of the per-block MAX score prices EVERY
+            # edge of the path jointly at >= 1-alpha_path, replacing the alpha/L
+            # per-edge Bonferroni quantile with a single (tighter-or-equal) joint
+            # quantile. Returns +inf while the buffer holds no full block
+            # supportable at this level -> fall through to the Bonferroni path
+            # below (warm-up: current behavior, unchanged). The alpha_path==1
+            # annealing corner (nothing supportable) also falls through -- the
+            # certificate is invalid there anyway.
+            Q = self._pasc_radius(path_len, alpha_path)
+            if math.isfinite(Q):
+                self._last_alpha_edge = alpha_path
+                return Q
         if self.cfg.shift_model == "lp":
             # Levy-Prokhorov worst-case per-edge quantile: level shift by rho_lp,
             # flat offset eps_lp. Always >= the exchangeable quantile (sound).
@@ -725,6 +786,79 @@ class CertPlanner:
         alpha_edge = path_alpha_edge(alpha_path, path_len)
         self._last_alpha_edge = alpha_edge
         return self.scorer.quantile(alpha_edge, self.t)
+
+    def _pasc_radius(self, path_len: int, alpha_path: float) -> float:
+        """PASC joint per-edge radius for a path of ``path_len`` edges at level
+        ``alpha_path`` (arXiv 2605.18812), computed from the live score buffer.
+        Shares pasc_edge_radius()'s block construction but takes the block length
+        directly (round() knows L, not a concrete calibration path) and matches
+        the LIVE score convention:
+
+        The buffer stores the DRIFT-ADJUSTED nonconformity score
+        ``s_e = |obs_e - c_hat_e| - rho_e * age_e`` (already an absolute
+        deviation minus the drift allowance). Bonferroni prices an edge at
+        ``c_hat +/- (q + rho*age)`` with ``q = scorer.quantile(alpha/L)`` = the
+        (1-alpha/L) weighted quantile of these SIGNED scores; coverage of edge e
+        needs ``q + rho*age_e >= |obs_e - c_hat_e|`` i.e. ``q >= s_e``. The joint
+        (all edges at once) analogue is therefore the (1-alpha) weighted quantile
+        of the per-block MAX of the SIGNED scores ``max_e s_e`` -- NOT
+        ``max_e |s_e|``. The standalone pasc_edge_radius()/PASCCalibrator take
+        ``|residual|`` because they were written for RAW symmetric residuals
+        (``yhat +/- Q``); applying abs to these already-drift-adjusted (hence
+        often negative) scores would double-count the drift subtraction and blow
+        the radius up. Signed-max keeps PASC the tighter-or-equal joint sibling
+        of the per-edge Bonferroni quantile.
+
+        Soundness: ``Q >= max_e s_e`` jointly (prob >= 1-alpha under block
+        exchangeability) gives ``Q + rho*age_e >= |obs_e - c_hat_e|`` for every
+        edge simultaneously -- the SAME per-edge magnitude bound Bonferroni
+        certifies, just calibrated jointly instead of via the alpha/L union.
+        Returns +inf while fewer than one full block exists (warm-up)."""
+        pl = max(path_len, 1)
+        samples = sorted(self.scorer._buf, key=lambda s: s.t, reverse=True)
+        n_blocks = len(samples) // pl
+        if n_blocks == 0:
+            return math.inf
+        scores, weights = [], []
+        for b in range(n_blocks):
+            block = samples[b * pl : (b + 1) * pl]
+            scores.append(max(s.residual for s in block))
+            weights.append(
+                min(self.cfg.rho_w ** max(0.0, self.t - s.t) for s in block)
+            )
+        return weighted_group_quantile(scores, weights, alpha_path)
+
+    def diagnostics(self) -> dict:
+        """Live validity/tightness dashboard for watch_monitor runs (WATCH,
+        arXiv 2505.04608 + DASC diagnostics, arXiv 2606.15953). All quantities
+        are OBSERVATIONAL -- none feed the certificate or the pricing:
+
+        * ``watch_value`` / ``watch_running_max`` / ``watch_alarm``: the
+          conformal test-martingale wealth and its Ville alarm (the null being
+          tested is the weighted-exchangeability the certificate assumes; an
+          alarm means the staleness/weighting model is breaking).
+        * ``sr_peak`` / ``sr_alarm`` / ``sr_alarm_round``: the Shiryaev-Roberts
+          e-detector, which restarts implicitly so a LATE change still alarms
+          quickly after a long quiet null.
+        * ``residual_drift_score``: DASC W1 distance between the recent-window
+          scores and the full calibration buffer (drift magnitude).
+        * ``effective_sample_size``: Kish n_eff of the age weights (how many
+          samples the weighted quantile effectively rests on).
+        """
+        w = self.scorer._weights(self.t)
+        cal = [s.residual for s in self.scorer._buf]
+        recent = self._recent_scores[-self.cfg.watch_window:]
+        return dict(
+            watch_value=self.watch.value,
+            watch_running_max=self.watch.running_max,
+            watch_alarm=self.watch.alarm(),
+            sr_peak=self.sr.peak,
+            sr_alarm=self.sr.alarm(),
+            sr_alarm_round=self.sr.alarm_round,
+            residual_drift_score=residual_drift_score(recent, cal),
+            effective_sample_size=effective_sample_size(w),
+            n_scores=len(cal),
+        )
 
     def round(self) -> tuple[Certificate, Edge | None]:
         """One replanning round. Returns the certificate and the sensed edge."""
@@ -1171,6 +1305,20 @@ class CertPlanner:
             not self.cfg.thinned_scores or self._obs_count[e] % 2 == 0
         ):
             score = abs(obs - b.c_hat) - b.rho * b.age(self.t)
+            # Live validity monitor (WATCH): the weighted conformal p-value of
+            # this fresh score against the CURRENT calibration buffer (before it
+            # is pushed) is (super-)uniform under the weighted-exchangeability
+            # null the certificate assumes. Feed it to the test martingale and
+            # the Shiryaev-Roberts detector. Purely observational -- no pricing.
+            if self.cfg.watch_monitor and self.scorer._buf:
+                w_cal = self.scorer._weights(self.t)
+                cal = [s.residual for s in self.scorer._buf]
+                p = conformal_p_value(score, cal, w_cal)
+                self.watch.update(p)
+                self.sr.update(p)
+                self._recent_scores.append(score)
+                if len(self._recent_scores) > self.cfg.watch_window:
+                    del self._recent_scores[0]
             self.scorer.push(score, self.t)
             self.scorer.push_signed(obs - b.c_hat, self.t)
             self.cal_rho_a_max = max(self.cal_rho_a_max, b.rho * b.age(self.t))
