@@ -9,11 +9,15 @@ Run when the visualization suite is verified and its MP4s + posters are in
 # from repo root, on a clean tree, as the Archerkattri account
 gh auth switch --user Archerkattri
 
-# build an orphan gh-pages branch containing ONLY the site/ contents at root
+# build an orphan gh-pages branch containing ONLY the site/ contents at root.
+# NOTE: `git switch --orphan` EMPTIES the working tree on current git, so stage
+# the site contents OUTSIDE the repo first, then copy them back in.
+STAGE=$(mktemp -d) && cp -r site/* "$STAGE"/ && cp -r assets "$STAGE"/assets
 git switch --orphan gh-pages
 git rm -rq --cached . 2>/dev/null || true
-git --work-tree=site checkout HEAD -- /dev/null 2>/dev/null || true
-cp -r site/* .            # site/index.html -> ./index.html, assets -> ./assets
+cp -r "$STAGE"/* . && rm -rf "$STAGE"
+# the source page references ../assets/; at gh-pages root it must be assets/
+sed -i 's#\.\./assets/#assets/#g' index.html
 touch .nojekyll           # serve assets verbatim (no Jekyll processing)
 git add index.html assets .nojekyll DEPLOY.md 2>/dev/null
 GIT_AUTHOR_NAME="Krishi Attri" GIT_AUTHOR_EMAIL="krishiattriwork@gmail.com" \
