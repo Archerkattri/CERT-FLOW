@@ -1,25 +1,21 @@
-"""Two-panel figure for the 2026 live-wiring layer (README + project page).
+"""Coverage-observability figure for the live-wiring layer (README + project page).
 
-Panel (a) -- certified width on REAL METR-LA: median UB-LB for the default
-Bonferroni path calibration vs the experimental PASC joint radius, read from the
-committed benchmark table (20 seeds x 288 rounds). Both hold 0.0000 violations;
-PASC is +25.1% wider -- the honest negative (opposite of the synthetic grid).
+Coverage made observable: the Shiryaev-Roberts statistic from the WATCH
+testability layer, replayed faithfully from run_watch_testability.py's seed-0
+streams. Under the correctly-modelled (null) stream it stays quiet below the
+alarm threshold; on a stream with an injected regime shift at round 250 it
+crosses the threshold ~7 rounds later. This is the same detector CERT-FLOW now
+runs live inside round() (planner.sr), at zero cost to the certificate -- quiet
+on 20/20 real METR-LA replay days.
 
-Panel (b) -- coverage made observable: the Shiryaev-Roberts statistic from the
-WATCH testability layer, replayed faithfully from run_watch_testability.py's
-seed-0 streams. Under the correctly-modelled (null) stream it stays quiet below
-the alarm threshold; on a stream with an injected regime shift at round 250 it
-crosses the threshold ~7 rounds later. Same detector CERT-FLOW now runs live
-(planner.sr), at zero cost to the certificate.
+(The certified-width comparison across pricing methods now lives in its own
+comprehensive chart, assets/width_methods.png; scripts/viz_gen/width_methods.py.)
 
 Reproduce:  PYTHONPATH=src python scripts/viz_gen/live_wiring_fig.py
-Writes assets/live_wiring_2026.png. Needs no data/ (synthetic panel + the
-committed results/live_wiring/table.json).
+Writes assets/live_wiring_2026.png. Needs no data/ (fully synthetic replay).
 """
 from __future__ import annotations
 
-import json
-import math
 import sys
 from pathlib import Path
 
@@ -35,8 +31,6 @@ from certflow.conformal import (  # noqa: E402
 )
 
 # ---- palette (Okabe-Ito; matches the repo/site --cert/--accent/--ok ink) -----
-BONF = "#0072B2"   # deep blue  (default calibration)
-PASC = "#E8722D"   # orange     (experimental)
 NULL = "#009E73"   # green      (quiet = good)
 SHIFT = "#D55E00"  # vermillion (alarm)
 INK = "#0a111e"
@@ -45,7 +39,7 @@ GRID = "#e4e9f0"
 SURF = "#ffffff"
 
 # ---- experiment constants (mirror scripts/run_watch_testability.py defaults) --
-ROUNDS, ALPHA, RHO_W, DRIFT, NOISE = 3000, 0.1, 0.98, 0.05, 0.10
+ROUNDS, RHO_W, DRIFT, NOISE = 3000, 0.98, 0.05, 0.10
 WARMUP, SHIFT_AT, SR_THRESHOLD = 100, 250, 10000.0
 
 
@@ -92,16 +86,7 @@ def main() -> None:
         "axes.labelcolor": INK, "xtick.color": MUTED, "ytick.color": MUTED,
     })
 
-    # ---- data: panel (a) from the committed benchmark table -------------------
-    tbl = json.loads((ROOT / "results/live_wiring/table.json").read_text())
-    rows = {r["mode"].split(" (")[0].split(" +")[0]: r for r in tbl["rows"]}
-    b_med = rows["Bonferroni"]["gap_median"]
-    p_med = rows["PASC"]["gap_median"]
-    b_mean = rows["Bonferroni"]["gap_mean"]
-    p_mean = rows["PASC"]["gap_mean"]
-    delta_pct = (p_med / b_med - 1.0) * 100.0
-
-    # ---- data: panel (b) faithful seed-0 replay -------------------------------
+    # ---- faithful seed-0 replay -----------------------------------------------
     rng = np.random.default_rng(0)
     null_scores = _make_stream(rng, ROUNDS, DRIFT, NOISE)
     shift_scores = _make_stream(rng, ROUNDS, DRIFT, NOISE,
@@ -111,55 +96,10 @@ def main() -> None:
     shift_mon = SHIFT_AT - WARMUP                     # shift, in monitoring rounds
     delay = None if alarm_step is None else alarm_step - shift_mon
 
-    fig, (axA, axB) = plt.subplots(
-        1, 2, figsize=(11.6, 4.5), gridspec_kw={"width_ratios": [1.0, 1.28]})
+    fig, axB = plt.subplots(1, 1, figsize=(8.2, 4.5))
     fig.patch.set_facecolor(SURF)
 
-    # ============================ PANEL (a) ====================================
-    axA.set_facecolor(SURF)
-    x = [0, 1]
-    meds = [b_med, p_med]
-    means = [b_mean, p_mean]
-    cols = [BONF, PASC]
-    bars = axA.bar(x, meds, width=0.62, color=cols, edgecolor=SURF, linewidth=2,
-                   zorder=3)
-    # mean marker (thin tick above the median bar) -- honest second stat
-    for xi, m in zip(x, means):
-        axA.plot([xi - 0.2, xi + 0.2], [m, m], color=INK, lw=1.6, zorder=5)
-    axA.plot([], [], color=INK, lw=1.6, label="mean")  # legend proxy
-    for xi, m in zip(x, meds):
-        axA.text(xi, m - max(meds) * 0.05, f"{m:,.0f}", ha="center", va="top",
-                 color=SURF, fontsize=13, fontweight="bold", zorder=6)
-    for xi, m in zip(x, means):
-        axA.text(xi, m + max(meds) * 0.02, f"mean {m:,.0f}", ha="center",
-                 va="bottom", color=MUTED, fontsize=9.5)
-
-    # +25.1% delta bracket
-    top = max(means) * 1.22
-    axA.plot([0, 0, 1, 1], [means[0] * 1.06, top, top, means[1] * 1.06],
-             color=MUTED, lw=1.1, zorder=2)
-    axA.text(0.5, top * 1.005, f"+{delta_pct:.1f}%  width", ha="center",
-             va="bottom", color=SHIFT, fontsize=11.5, fontweight="bold")
-
-    axA.set_xticks(x)
-    axA.set_xticklabels(["Bonferroni\n(default)", "PASC\n(experimental)"],
-                        fontsize=11, color=INK)
-    axA.set_ylabel("certified width  UB − LB   (median, s)", fontsize=10.5)
-    axA.set_ylim(0, top * 1.16)
-    axA.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v/1000:.0f}k"))
-    axA.set_title("Certified width on real METR-LA",
-                  fontsize=13.5, fontweight="bold", color=INK, loc="left", pad=10)
-    axA.text(0, 1.005, "20 seeds × 288 rounds · violations 0.0000 both",
-             transform=axA.transAxes, fontsize=9.5, color=MUTED, va="bottom")
-    axA.legend(loc="upper left", frameon=False, fontsize=9, handlelength=1.2,
-               bbox_to_anchor=(0.0, 0.94))
-    for s in ("top", "right"):
-        axA.spines[s].set_visible(False)
-    axA.grid(axis="y", color=GRID, lw=0.9, zorder=0)
-    axA.set_axisbelow(True)
-    axA.tick_params(length=0)
-
-    # ============================ PANEL (b) ====================================
+    # ============================ SR MONITOR ===================================
     axB.set_facecolor(SURF)
     r_null = np.arange(len(null_traj))
     r_shift = np.arange(len(shift_traj))
@@ -193,7 +133,7 @@ def main() -> None:
     axB.set_xlabel("monitoring round", fontsize=10.5)
     axB.set_ylabel("Shiryaev–Roberts statistic  R$_t$", fontsize=10.5)
     axB.set_title("Coverage is now observable  (WATCH monitor)",
-                  fontsize=13.5, fontweight="bold", color=INK, loc="left", pad=10)
+                  fontsize=13.5, fontweight="bold", color=INK, loc="left", pad=24)
     axB.text(0, 1.005,
              "quiet 20/20 real METR-LA seeds · no certificate change",
              transform=axB.transAxes, fontsize=9.5, color=MUTED, va="bottom")
@@ -205,12 +145,11 @@ def main() -> None:
     axB.set_axisbelow(True)
     axB.tick_params(length=0)
 
-    fig.tight_layout(pad=1.4, w_pad=3.0)
+    fig.tight_layout(pad=1.4)
     out = ROOT / "assets/live_wiring_2026.png"
     fig.savefig(out, dpi=200, facecolor=SURF, bbox_inches="tight")
     print(f"wrote {out}")
-    print(f"panel a: Bonf median {b_med:,.0f}s  PASC {p_med:,.0f}s  (+{delta_pct:.1f}%)")
-    print(f"panel b: null peak {null_traj.max():.0f}  shift peak {shift_traj.max():.3g}  "
+    print(f"SR monitor: null peak {null_traj.max():.0f}  shift peak {shift_traj.max():.3g}  "
           f"alarm +{delay} rounds")
 
 

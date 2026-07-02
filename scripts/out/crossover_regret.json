@@ -1,0 +1,181 @@
+{
+  "meta": {
+    "grid": [
+      12,
+      12
+    ],
+    "world_kind": "bounded",
+    "rho_grid": [
+      0.0,
+      0.005,
+      0.01,
+      0.02,
+      0.05,
+      0.1
+    ],
+    "n_seeds": 15,
+    "n_rounds": 220,
+    "warmup_discarded": 40,
+    "noise_scale": 0.05,
+    "epsilon": 5.0,
+    "alpha_prime": 0.1,
+    "delta": 1.0,
+    "min_manhattan": 12,
+    "cert_config": "epsilon=5.0, alpha_prime=0.1, hybrid_sensing=True, use_kappa=True, rho_mode=online, adaptive_rate=False",
+    "J_definition": "J = mean_regret + mean_overrun; equal weight, both in true-cost (grid edge cost) units.",
+    "promise_note": "FAST promise = believed point-estimate cost of its route; CERT promise = cert.ub when valid, else ABSTAIN (no promise; incumbent still scored for regret). CERT overrun/violation are measured over promised rounds; overrun is 0 on abstention rounds.",
+    "determinism_note": "two grid_world instances with the same seed have byte-identical true_cost (max diff 0.0, verified); observe() noise draws from a separate shared RNG and never perturbs true_cost -- fair identical ground truth, independent observation noise.",
+    "cost_units": "grid edge cost units (lognormal, median ~1.0)"
+  },
+  "per_rho": [
+    {
+      "rho": 0.0,
+      "n_rounds_scored": 2700,
+      "fast": {
+        "regret": 0.036126474939890726,
+        "overrun": 0.15445077089043252,
+        "violation_rate": 0.7925925925925926,
+        "wall_clock_ms": 0.25896398867997855,
+        "J": 0.19057724583032326
+      },
+      "cert": {
+        "regret": 0.020246786102957437,
+        "overrun": 0.0,
+        "violation_rate": 0.0,
+        "abstention_rate": 0.0011111111111110628,
+        "mean_certified_gap": 15.017076830780544,
+        "wall_clock_ms": 1.048899931160526,
+        "J": 0.020246786102957437
+      },
+      "J_fast": 0.19057724583032326,
+      "J_cert": 0.020246786102957437,
+      "J_diff_fast_minus_cert": 0.17033045972736582
+    },
+    {
+      "rho": 0.005,
+      "n_rounds_scored": 2700,
+      "fast": {
+        "regret": 0.05476923345254201,
+        "overrun": 0.2185121848628034,
+        "violation_rate": 0.6225925925925926,
+        "wall_clock_ms": 0.25520721079643677,
+        "J": 0.2732814183153454
+      },
+      "cert": {
+        "regret": 0.05278617985759151,
+        "overrun": 0.0,
+        "violation_rate": 0.0,
+        "abstention_rate": 0.001481481481481528,
+        "mean_certified_gap": 15.06953136010044,
+        "wall_clock_ms": 1.0517327196861581,
+        "J": 0.05278617985759151
+      },
+      "J_fast": 0.2732814183153454,
+      "J_cert": 0.05278617985759151,
+      "J_diff_fast_minus_cert": 0.2204952384577539
+    },
+    {
+      "rho": 0.01,
+      "n_rounds_scored": 2700,
+      "fast": {
+        "regret": 0.23314774649864448,
+        "overrun": 0.31025688573083116,
+        "violation_rate": 0.6403703703703704,
+        "wall_clock_ms": 0.26447010148937505,
+        "J": 0.5434046322294757
+      },
+      "cert": {
+        "regret": 0.19418909728045955,
+        "overrun": 0.0,
+        "violation_rate": 0.0,
+        "abstention_rate": 0.00037037037037035425,
+        "mean_certified_gap": 15.335037512772486,
+        "wall_clock_ms": 1.0476789038835301,
+        "J": 0.19418909728045955
+      },
+      "J_fast": 0.5434046322294757,
+      "J_cert": 0.19418909728045955,
+      "J_diff_fast_minus_cert": 0.34921553494901614
+    },
+    {
+      "rho": 0.02,
+      "n_rounds_scored": 2700,
+      "fast": {
+        "regret": 0.7750161870975886,
+        "overrun": 0.5812454443544259,
+        "violation_rate": 0.6788888888888889,
+        "wall_clock_ms": 0.25340856544466484,
+        "J": 1.3562616314520146
+      },
+      "cert": {
+        "regret": 0.4779054512702853,
+        "overrun": 0.0,
+        "violation_rate": 0.0,
+        "abstention_rate": 0.00037037037037035425,
+        "mean_certified_gap": 16.743025771372643,
+        "wall_clock_ms": 0.9360972907463158,
+        "J": 0.4779054512702853
+      },
+      "J_fast": 1.3562616314520146,
+      "J_cert": 0.4779054512702853,
+      "J_diff_fast_minus_cert": 0.8783561801817293
+    },
+    {
+      "rho": 0.05,
+      "n_rounds_scored": 2700,
+      "fast": {
+        "regret": 2.9735578511059546,
+        "overrun": 2.053775243191105,
+        "violation_rate": 0.8403703703703703,
+        "wall_clock_ms": 0.17643224732536408,
+        "J": 5.0273330942970595
+      },
+      "cert": {
+        "regret": 1.5016036784347766,
+        "overrun": 0.0,
+        "violation_rate": 0.0,
+        "abstention_rate": 0.0,
+        "mean_certified_gap": 21.688557524668678,
+        "wall_clock_ms": 0.6164705272143086,
+        "J": 1.5016036784347766
+      },
+      "J_fast": 5.0273330942970595,
+      "J_cert": 1.5016036784347766,
+      "J_diff_fast_minus_cert": 3.525729415862283
+    },
+    {
+      "rho": 0.1,
+      "n_rounds_scored": 2700,
+      "fast": {
+        "regret": 6.377599939745986,
+        "overrun": 6.597670895116249,
+        "violation_rate": 0.9729629629629629,
+        "wall_clock_ms": 0.1252963999286294,
+        "J": 12.975270834862235
+      },
+      "cert": {
+        "regret": 2.5228175869229705,
+        "overrun": 0.0,
+        "violation_rate": 0.0,
+        "abstention_rate": 0.0,
+        "mean_certified_gap": 33.07568599997798,
+        "wall_clock_ms": 0.45785921850000266,
+        "J": 2.5228175869229705
+      },
+      "J_fast": 12.975270834862235,
+      "J_cert": 2.5228175869229705,
+      "J_diff_fast_minus_cert": 10.452453247939264
+    }
+  ],
+  "crossover": {
+    "composite_J": {
+      "rho_star": 0.0,
+      "note": "fast_minus_cert > 0 at every sampled rho (including the static map rho=0): no interior crossover -- CERT is lower across the whole sweep. rho_star reported as 0.0."
+    },
+    "regret_only": {
+      "rho_star": 0.0,
+      "note": "fast_minus_cert > 0 at every sampled rho (including the static map rho=0): no interior crossover -- CERT is lower across the whole sweep. rho_star reported as 0.0."
+    }
+  },
+  "runtime_seconds": 3.689030170440674
+}
