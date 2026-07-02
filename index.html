@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CERT-FLOW · Certified Route Planning under Drifting Costs</title>
+<meta name="description" content="An online planner that proves how good your route is while the map goes stale — a high-probability certificate LB ≤ OPT ≤ UB under drifting edge costs, with sensing aimed at the certified gap.">
+<meta property="og:title" content="CERT-FLOW — Certified Route Planning under Drifting Costs">
+<meta property="og:description" content="A high-probability certificate LB ≤ OPT ≤ UB on the optimal route, under drifting costs, with sense-to-certify. Coverage 1.000 measured; oracle-level regret; proof-gated µs queries.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://archerkattri.github.io/CERT-FLOW/">
+<meta property="og:image" content="https://archerkattri.github.io/CERT-FLOW/assets/banner.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://archerkattri.github.io/CERT-FLOW/assets/banner.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Public+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0a111e; --panel:#0f1a2c; --panel2:#13223a; --line:#21324c; --line2:#2c4061;
+    --fg:#e9eff8; --muted:#a7bcd9; --dim:#62799a;
+    --cert:#56B4E9; --certdeep:#0072B2; --accent:#E8722D; --ok:#2bbd83; --bad:#e0654a;
+    --maxw:1100px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; color:var(--fg); font-family:"Public Sans",system-ui,sans-serif;
+    font-size:17px; line-height:1.68; -webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(900px 500px at 85% -5%, rgba(86,180,233,.10), transparent 60%),
+      radial-gradient(700px 500px at 5% 8%, rgba(0,114,178,.08), transparent 55%),
+      var(--ink);
+  }
+  a{color:var(--cert); text-decoration:none} a:hover{text-decoration:underline}
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 24px}
+  h1,h2,h3{font-family:"Fraunces",Georgia,serif; line-height:1.08; font-weight:600; letter-spacing:-.012em}
+  h2{font-size:clamp(29px,4.4vw,44px); margin:0 0 .35em}
+  h3{font-size:21px; margin:0 0 .3em}
+  p{margin:.6em 0}
+  .mono{font-family:"JetBrains Mono",monospace} .muted{color:var(--muted)} .dim{color:var(--dim)}
+  section{padding:92px 0; border-top:1px solid var(--line); position:relative}
+  .eyebrow{font-family:"JetBrains Mono",monospace; font-size:12px; letter-spacing:.26em;
+    text-transform:uppercase; color:var(--cert); margin:0 0 16px}
+  .lead{font-size:19px; color:var(--muted); max-width:760px}
+  .lead b, p b{color:var(--fg); font-weight:600}
+
+  /* scroll reveal */
+  .reveal{opacity:0; transform:translateY(22px); transition:opacity .7s ease, transform .7s ease}
+  .reveal.in{opacity:1; transform:none}
+  @media(prefers-reduced-motion:reduce){ .reveal{opacity:1; transform:none; transition:none} }
+  .no-js .reveal{opacity:1; transform:none}
+
+  /* nav */
+  nav{position:sticky; top:0; z-index:40; backdrop-filter:blur(12px);
+    background:rgba(10,17,30,.78); border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex; align-items:center; justify-content:space-between; height:60px}
+  nav .brand{font-family:"JetBrains Mono",monospace; font-weight:600; letter-spacing:.06em; font-size:16px}
+  nav .brand b{color:var(--cert)}
+  nav .links{display:flex; gap:4px}
+  nav .links a{color:var(--muted); padding:7px 11px; border-radius:7px; font-size:14px}
+  nav .links a:hover{color:var(--fg); background:rgba(86,180,233,.08); text-decoration:none}
+  nav .links a.active{color:var(--cert)}
+  .navcta{border:1px solid var(--line2)!important; color:var(--fg)!important}
+  @media(max-width:760px){ nav .links a:not(.navcta){display:none} }
+
+  /* hero */
+  .hero{position:relative; padding:104px 0 84px; overflow:hidden; border-top:none}
+  .hero .band{position:absolute; inset:0; z-index:0; opacity:.85}
+  /* scrim: keep the left text column on clean dark; band reads only on the right */
+  .hero::after{content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+    background:linear-gradient(95deg, var(--ink) 0%, var(--ink) 48%,
+      rgba(10,17,30,.55) 66%, rgba(10,17,30,0) 84%)}
+  .hero .wrap{position:relative; z-index:1}
+  .kicker{font-family:"JetBrains Mono",monospace; font-size:13px; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--cert); margin:0 0 18px}
+  .hero h1{font-size:clamp(48px,9vw,104px); font-weight:900; margin:0; letter-spacing:-.035em; line-height:.96}
+  .hero h1 .dot{color:var(--cert)}
+  .subt{font-family:"Fraunces",serif; font-size:clamp(19px,2.6vw,27px); color:var(--fg);
+    font-weight:400; margin:.5em 0 0; max-width:780px}
+  .cert-eq{font-family:"JetBrains Mono",monospace; font-size:clamp(15px,2.2vw,20px);
+    background:rgba(86,180,233,.09); border:1px solid var(--line2); border-radius:9px;
+    padding:11px 17px; display:inline-block; margin:26px 0 4px}
+  .cert-eq .c{color:var(--cert)} .cert-eq .o{color:#fff}
+  .lede{font-size:clamp(17px,2.1vw,20px); max-width:680px; color:var(--muted); margin:20px 0 30px}
+  .cta{display:flex; flex-wrap:wrap; gap:12px}
+  .btn{display:inline-flex; align-items:center; gap:8px; padding:13px 22px; border-radius:10px;
+    font-weight:700; font-size:15px; transition:transform .15s ease, background .15s ease}
+  .btn:hover{transform:translateY(-2px); text-decoration:none}
+  .btn.primary{background:var(--cert); color:#06121f} .btn.primary:hover{background:#7cc6ef}
+  .btn.ghost{border:1px solid var(--line2); color:var(--fg)} .btn.ghost:hover{border-color:var(--cert)}
+  .metabar{margin-top:30px; font-family:"JetBrains Mono",monospace; font-size:12.5px; color:var(--dim);
+    display:flex; flex-wrap:wrap; gap:10px 22px}
+  .metabar b{color:var(--muted)}
+
+  /* layout helpers */
+  .grid2{display:grid; grid-template-columns:1.05fr .95fr; gap:40px; align-items:center}
+  @media(max-width:820px){ .grid2{grid-template-columns:1fr; gap:28px} }
+  figure{margin:0}
+  figure img{width:100%; border:1px solid var(--line2); border-radius:12px; background:#fff;
+    box-shadow:0 18px 50px -28px rgba(0,0,0,.8)}
+  figcaption{font-size:13.5px; color:var(--dim); margin-top:12px; line-height:1.55}
+
+  /* steps */
+  .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:34px}
+  @media(max-width:820px){ .steps{grid-template-columns:1fr 1fr} }
+  @media(max-width:540px){ .steps{grid-template-columns:1fr} }
+  .step{background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line);
+    border-radius:13px; padding:20px; transition:transform .18s ease, border-color .18s ease}
+  .step:hover{transform:translateY(-3px); border-color:var(--line2)}
+  .step .n{font-family:"JetBrains Mono",monospace; color:var(--cert); font-size:12.5px; letter-spacing:.05em}
+  .step h3{font-size:16.5px; margin:.5em 0 .25em} .step p{margin:0; font-size:14.5px; color:var(--muted)}
+
+  /* videos */
+  .vids{display:grid; grid-template-columns:1fr 1fr; gap:28px; margin-top:34px}
+  @media(max-width:820px){ .vids{grid-template-columns:1fr} }
+  .vid{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    box-shadow:0 18px 50px -32px rgba(0,0,0,.85)}
+  .vid video{width:100%; display:block; background:#fff}
+  .vid .cap{padding:18px 20px 20px}
+  .vid .cap h3{font-size:17.5px; margin-bottom:.3em}
+  .vid .cap p{margin:0; font-size:14.5px; color:var(--muted)}
+  .verdict{display:flex; flex-wrap:wrap; gap:8px; margin-top:13px; font-family:"JetBrains Mono",monospace; font-size:12.5px}
+  .pill{padding:4px 10px; border-radius:999px; border:1px solid var(--line2)}
+  .pill.win{background:rgba(43,189,131,.13); border-color:rgba(43,189,131,.4); color:var(--ok)}
+  .pill.lose{background:rgba(224,101,74,.12); border-color:rgba(224,101,74,.4); color:var(--bad)}
+  .pill.warn{background:rgba(232,114,45,.13); border-color:rgba(232,114,45,.42); color:var(--accent)}
+  .pill.dir{color:var(--muted)}
+  .full{grid-column:1/-1}
+
+  /* verdict scoreboard (reuses .tblwrap/table; left-aligned, verdict pills) */
+  .scoreboard td{text-align:left; vertical-align:top; font-size:13.5px; line-height:1.5}
+  .scoreboard td:first-child{color:var(--fg); font-weight:700; white-space:nowrap}
+  .scoreboard .val{color:var(--fg); font-weight:600}
+  .scoreboard .just{display:block; color:var(--dim); font-size:12.5px; margin-top:6px}
+  .scoreboard tr.pass td:first-child{border-left:3px solid var(--ok)}
+  .scoreboard tr.fail td:first-child{border-left:3px solid var(--bad)}
+  .scoreboard tr.weak td:first-child{border-left:3px solid var(--accent)}
+  .scoreboard tr.mixed td:first-child{border-left:3px solid var(--dim)}
+
+  /* stat cards */
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:6px 0 8px}
+  @media(max-width:820px){ .stats{grid-template-columns:1fr 1fr} }
+  .card{background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line);
+    border-radius:13px; padding:22px 18px; transition:transform .18s ease, border-color .18s ease}
+  .card:hover{transform:translateY(-3px); border-color:var(--line2)}
+  .card .dir{font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--cert)}
+  .card .big{font-family:"Fraunces",serif; font-size:33px; font-weight:900; color:var(--fg); line-height:1.05; margin-top:6px}
+  .card .lab{font-size:13px; color:var(--muted); margin-top:9px; line-height:1.5}
+
+  /* table */
+  .tblwrap{overflow-x:auto; margin-top:30px; border:1px solid var(--line); border-radius:13px}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; min-width:560px}
+  th,td{padding:13px 14px; text-align:center; border-bottom:1px solid var(--line)}
+  tbody tr:last-child td{border-bottom:none}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-family:"JetBrains Mono",monospace; font-size:11.5px; letter-spacing:.05em;
+    color:var(--muted); text-transform:uppercase; font-weight:600; background:var(--panel)}
+  .yes{color:var(--ok); font-weight:700; font-size:16px} .no{color:#5a6b84; font-size:16px}
+  tr.ours td{background:rgba(86,180,233,.09)} tr.ours td:first-child{color:var(--cert); font-weight:700}
+  .trophy{font-size:13px}
+
+  /* chips (theory) */
+  .chips{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:30px}
+  @media(max-width:820px){ .chips{grid-template-columns:1fr} }
+  .chip{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:17px 19px}
+  .chip b{font-family:"JetBrains Mono",monospace; color:var(--cert); font-size:13px}
+  .chip span{display:block; color:var(--muted); font-size:14.5px; margin-top:5px}
+
+  /* boundaries (honesty) */
+  .bounds{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:30px}
+  @media(max-width:820px){ .bounds{grid-template-columns:1fr} }
+  .bound{background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent);
+    border-radius:10px; padding:17px 19px}
+  .bound h3{font-size:16px; color:var(--fg)} .bound p{margin:.3em 0 0; font-size:14.5px; color:var(--muted)}
+
+  /* code + cite */
+  pre{background:#070e1a; border:1px solid var(--line); border-radius:13px; padding:20px 22px;
+    overflow-x:auto; font-family:"JetBrains Mono",monospace; font-size:13px; color:#cfe1f5; line-height:1.7}
+  pre .c{color:var(--dim)} pre .k{color:var(--cert)}
+  .links-row{display:flex; flex-wrap:wrap; gap:10px; margin-top:14px}
+  .links-row a{border:1px solid var(--line2); border-radius:8px; padding:8px 14px; font-size:14px; color:var(--fg)}
+  .links-row a:hover{border-color:var(--cert); text-decoration:none}
+
+  footer{padding:52px 0 76px; border-top:1px solid var(--line); color:var(--dim); font-size:14px}
+  footer a{color:var(--muted)}
+  .note{font-size:13px; color:var(--dim); margin-top:16px; font-style:italic}
+  .legend{font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--dim); margin-top:12px}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="brand">CERT<b>·</b>FLOW</div>
+  <div class="links">
+    <a href="#problem">Problem</a>
+    <a href="#method">Method</a>
+    <a href="#videos">Videos</a>
+    <a href="#results">Results</a>
+    <a href="#upgrades">Observability</a>
+    <a href="#theory">Theory</a>
+    <a href="#boundaries">Boundaries</a>
+    <a class="navcta" href="https://github.com/Archerkattri/CERT-FLOW">GitHub ↗</a>
+  </div>
+</div></nav>
+
+<header class="hero">
+  <svg class="band" viewBox="0 0 1280 680" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="bnd" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#56B4E9" stop-opacity="0.04"/>
+        <stop offset="0.6" stop-color="#56B4E9" stop-opacity="0.20"/>
+        <stop offset="1" stop-color="#56B4E9" stop-opacity="0.05"/>
+      </linearGradient>
+    </defs>
+    <!-- sawtooth certificate envelope: widens, snaps tight at each observation -->
+    <path d="M-20 360 L300 300 L300 360 L640 270 L640 360 L980 250 L980 360 L1300 210
+             L1300 470 L980 360 L980 420 L640 360 L640 410 L300 360 L300 380 L-20 360 Z"
+          fill="url(#bnd)"/>
+    <polyline points="-20,360 300,300 300,360 640,270 640,360 980,250 980,360 1300,210"
+              fill="none" stroke="#56B4E9" stroke-width="1.5" opacity="0.45"/>
+    <polyline points="-20,360 300,380 300,360 640,410 640,360 980,420 980,360 1300,470"
+              fill="none" stroke="#0072B2" stroke-width="1.5" stroke-dasharray="7 6" opacity="0.5"/>
+    <path d="M-20 362 C200 356 360 368 640 362 C920 356 1100 368 1300 362"
+          fill="none" stroke="#dfe9f6" stroke-width="2" opacity="0.4"/>
+  </svg>
+  <div class="wrap">
+    <p class="kicker">engrXiv 10.31224/7306 · open source · MIT</p>
+    <h1>CERT<span class="dot">·</span>FLOW</h1>
+    <p class="subt">Certified route planning under drifting costs.</p>
+    <div class="cert-eq"><span class="c">LB</span> &le; <span class="o">OPT</span> &le; <span class="c">UB</span></div>
+    <p class="lede">A robot routing through terrain whose costs drift — mud after rain, traffic after an incident — can't answer the one question that matters: <b>how good is my route, now that most of the map is stale?</b> CERT-FLOW answers it every round, with a proof, and spends sensing exactly where the proof is loosest.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://doi.org/10.31224/7306">Read the paper ↗</a>
+      <a class="btn ghost" href="https://github.com/Archerkattri/CERT-FLOW">Get the code ↗</a>
+      <a class="btn ghost" href="#videos">Watch it ▾</a>
+    </div>
+    <div class="metabar">
+      <span><b>250</b> tests</span><span><b>coverage 1.000</b> measured</span>
+      <span><b>2</b> real cities + off-road</span><span><b>T1–T7</b> proven</span><span><b>MIT</b></span>
+    </div>
+  </div>
+</header>
+
+<section id="problem">
+  <div class="wrap reveal">
+    <p class="eyebrow">The problem</p>
+    <h2>Classical replanning never tells you when to stop trusting the map.</h2>
+    <p class="lead">A scout vehicle maps a forest trail in winter; by summer the mud is gone and the costs have moved. A delivery robot's street graph drifts with every incident. D*&nbsp;Lite, A*, and friends re-find the shortest path on whatever costs they currently hold — <b>silently</b>, whether those costs are fresh or hours stale. The route looks optimal and may not be, with nothing to flag it.</p>
+    <p class="lead">The honest question is a <b>certificate</b> question: bound the true optimum from both sides, act only on what you can prove, and when the bound is too loose, <b>spend a sensor reading exactly where it tightens fastest</b>.</p>
+  </div>
+</section>
+
+<section id="method">
+  <div class="wrap reveal">
+    <p class="eyebrow">How it works</p>
+    <div class="grid2">
+      <div>
+        <h2>One round: price staleness, bound the optimum, sense the gap.</h2>
+        <p class="lead">Each edge carries a point estimate, an observation age, and a drift-rate bound. Age-weighted <b>non-exchangeable conformal prediction</b> turns these into intervals that widen with staleness; two incremental searches bracket the optimum from below and above; the certificate either certifies (gap ≤ ε) or points the next sensor reading at the edge that shrinks the gap fastest. When the certificate proves the map is tight, that proof licenses lookup-speed preprocessing — revoked the instant drift exceeds tolerance.</p>
+      </div>
+      <figure>
+        <img src="assets/overview.png" alt="One CERT round: observations to conformal intervals to dual search to certificate to sensing">
+        <figcaption>One CERT round, end to end — paid observations feed the conformal scorer; per-edge intervals bracket the optimum via dual incremental search; the certificate drives sensing; a proof of tightness gates preprocessing.</figcaption>
+      </figure>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="n">01 · score</div><h3>Drift-adjusted residuals</h3><p>Each paid observation is scored and weighted by age — exchangeability is never assumed.</p></div>
+      <div class="step"><div class="n">02 · price</div><h3>ĉ ± (λq + ρ·age)</h3><p>The conformal quantile pays for noise; the drift term pays for staleness.</p></div>
+      <div class="step"><div class="n">03 · bound</div><h3>Dual incremental search</h3><p>An optimistic ℓ-search and a conservative u-search, repaired incrementally on a flat-array engine.</p></div>
+      <div class="step"><div class="n">04 · claim</div><h3>LB ≤ OPT ≤ UB</h3><p>At an honestly-annealed confidence that degrades visibly as the map ages — weak claims, not silence.</p></div>
+      <div class="step"><div class="n">05 · sense</div><h3>Shrink the certified gap</h3><p>Route-critical, churn-aware sensing — certification is a <em>rate</em>, not a state (Theorem&nbsp;T2′).</p></div>
+      <div class="step"><div class="n">06 · prove → cache</div><h3>Gated preprocessing</h3><p>When every interval is provably tight, an oracle / certified CH answers in ns–µs, revoked once drift exceeds τ.</p></div>
+    </div>
+    <figure style="margin-top:40px">
+      <img src="assets/animations/certified_corridor.gif" alt="CERT-FLOW running live on a 20x20 drifting grid: left, true edge costs as a heatmap with the certified incumbent path and the edges sensed each round; right, the certified corridor LB <= OPT <= UB growing over time with the true optimum drawn inside it.">
+      <figcaption><b>The whole loop, live — real planner, 20×20 drift grid, 170 rounds.</b> <b>Left:</b> true edge costs (heatmap), the certified incumbent path, and the gap-directed edges the planner pays to sense each round. <b>Right:</b> the certified corridor grows round by round — warm-up (certificate <em>invalid</em>) → valid (<span class="mono">LB ≤ OPT ≤ UB</span> brackets the true optimum, drawn inside) → drift moves the costs → sensing holds the band. Coverage over the valid rounds is <b>115/115</b> against exact Dijkstra. Regenerated by <span class="mono">scripts/viz_gen/certified_corridor.py</span>.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="videos">
+  <div class="wrap reveal">
+    <p class="eyebrow">See it move</p>
+    <h2>The certificate that holds — and the ones that break.</h2>
+    <p class="lead">Every clip replays a <b>real run</b>; the coverage and regret numbers are measured at render time, not staged (warm-up rounds are drawn as “no claim”, never counted as misses). A note on honesty: on a known static map every planner finds the <em>same</em> optimal path — so these show what actually differs under drift: certificate validity and sensing efficiency.</p>
+    <div class="vids">
+      <div class="vid reveal">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/posters/poster-cert-break-grid.png">
+          <source src="assets/videos/cert-break-grid.mp4" type="video/mp4"></video>
+        <div class="cap"><h3>Certificate holds vs. breaks — drifting grid</h3>
+          <p>CERT's band contains the true optimum on every round it claims; AD*'s w-suboptimality band, trusting stale point estimates, drifts out of date.</p>
+          <div class="verdict"><span class="pill dir">coverage ↑</span><span class="pill win">CERT 100%</span><span class="pill lose">AD* 43%</span></div></div>
+      </div>
+      <div class="vid reveal">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/posters/poster-cert-break-movingai.png">
+          <source src="assets/videos/cert-break-movingai.mp4" type="video/mp4"></video>
+        <div class="cap"><h3>Same story, real MovingAI map</h3>
+          <p>Certificate validity on benchmark game-map geometry (DAO arena) under bounded drift — the result transfers off the synthetic grid.</p>
+          <div class="verdict"><span class="pill dir">coverage ↑</span><span class="pill win">CERT 100%</span><span class="pill lose">AD* 42%</span></div></div>
+      </div>
+      <div class="vid reveal">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/posters/poster-sensing-grid.png">
+          <source src="assets/videos/sensing-grid.mp4" type="video/mp4"></video>
+        <div class="cap"><h3>Sensing that pays — unknown terrain</h3>
+          <p>Gap-directed sensing converges near a clairvoyant oracle; random / max-age / drive-blind wander at the same budget (mean over 15 seeds).</p>
+          <div class="verdict"><span class="pill dir">regret ↓</span><span class="pill win">CERT 1.96</span><span class="pill lose">others 4.9–7.8</span></div></div>
+      </div>
+      <div class="vid reveal">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/posters/poster-sensing-movingai.png">
+          <source src="assets/videos/sensing-movingai.mp4" type="video/mp4"></video>
+        <div class="cap"><h3>Sensing that pays — real arena map</h3>
+          <p>The same regret race on a cropped MovingAI arena: gap-directed sensing reaches the goal at the lowest travel-regret of any policy.</p>
+          <div class="verdict"><span class="pill dir">regret ↓</span><span class="pill win">CERT 1.71 (lowest)</span></div></div>
+      </div>
+      <div class="vid reveal full">
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/posters/poster-staleness-metrla.png">
+          <source src="assets/videos/staleness-metrla.mp4" type="video/mp4"></video>
+        <div class="cap"><h3>Exchangeability collapse under staleness — METR-LA traffic</h3>
+          <p>Exchangeable conformal (CIA, run with its own construction on the same city) covers on the static slice it assumes, then collapses as the calibration→test gap grows; CERT widens its interval to keep coverage. The price is paid in width, explicitly — never in coverage.</p>
+          <div class="verdict"><span class="pill dir">coverage ↑</span><span class="pill win">CERT 0.96–1.00</span><span class="pill lose">CIA 0.88 → 0.25</span><span class="pill dir">width ↓ = CIA frozen 53 s · CERT widens to stay valid</span></div></div>
+      </div>
+    </div>
+    <p class="note">Rendered by <span class="mono">scripts/viz_compare.py</span> + the visualization suite — reproducible like every number on this page.</p>
+  </div>
+</section>
+
+<section id="results">
+  <div class="wrap reveal">
+    <p class="eyebrow">Where it stands</p>
+    <h2>Best-in-class where it counts — and honest about the rest.</h2>
+    <div class="stats">
+      <div class="card"><div class="dir">↑ higher better</div><div class="big">1.000</div><div class="lab">certificate coverage, every condition — two real cities at up to 49% drift-model violation</div></div>
+      <div class="card"><div class="dir">↓ lower better</div><div class="big">−0.12</div><div class="lab">travel-regret in unknown drifting terrain — statistically at a clairvoyant oracle</div></div>
+      <div class="card"><div class="dir">↓ lower better</div><div class="big">269 ns</div><div class="lab">certified static query via proof-gated preprocessing (8.7 µs for a full path)</div></div>
+      <div class="card"><div class="dir">↓ lower better</div><div class="big">0.015 ms</div><div class="lab">road cost-change absorption vs ≈ 1 s for CRP recustomization — four orders faster</div></div>
+    </div>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>property →</th><th>drift-aware intervals</th><th>path-cost certificate</th><th>online incremental</th><th>gap-directed sensing</th></tr></thead>
+        <tbody>
+          <tr><td>D* Lite / AD*</td><td class="no">✕</td><td class="no">✕</td><td class="yes">✓</td><td class="no">✕</td></tr>
+          <tr><td>Conformal sums (CIA, CQR-GAE)</td><td class="no">✕</td><td class="yes">✓</td><td class="no">✕</td><td class="no">✕</td></tr>
+          <tr><td>TASP / FreMEn</td><td class="yes">✓</td><td class="no">✕</td><td class="no">✕</td><td class="no">✕</td></tr>
+          <tr><td>CTP + sensing / IPP</td><td class="no">✕</td><td class="no">✕</td><td class="no">✕</td><td class="yes">✓</td></tr>
+          <tr class="ours"><td>🏆 CERT-FLOW</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Every prior family misses at least two of the four properties whose conjunction CERT occupies. All per-condition numbers — marked ↑/↓ and ranked best→worst — are in <a href="https://github.com/Archerkattri/CERT-FLOW/tree/main/docs/results">docs/results</a>.</p>
+  </div>
+</section>
+
+<section id="upgrades">
+  <div class="wrap reveal">
+    <p class="eyebrow">Coverage, observable · opt-in</p>
+    <h2>Coverage you can watch — not just claim.</h2>
+    <p class="lead">A certificate pinned at coverage 1.000 hides an awkward truth: the claim was <em>untestable</em>. An opt-in observability layer turns it into a <b>live, alarming quantity</b> — a WATCH conformal test-martingale and a Shiryaev–Roberts change-detector run alongside the planner and fire the moment the staleness model the proof leans on actually breaks. Every piece is <b>off by default</b>, a config flag or a new class, and touches no certificate: the <span class="mono">(LB, UB, confidence)</span> stream is byte-identical on or off.</p>
+    <figure style="margin-top:36px">
+      <img src="assets/animations/watch_alarm.gif" alt="The planner with watch_monitor=True on a grid whose true costs surge mid-run. Left: the certificate band brackets the true optimum until the drift jump, when the optimum briefly escapes the band still priced off stale costs. Right: the Shiryaev-Roberts statistic crawls flat under the correct model then explodes past its alarm threshold six rounds after the jump.">
+      <figcaption><b>Watch it fire.</b> The real planner with <span class="mono">watch_monitor=True</span> on a grid whose costs <b>surge mid-run</b> (the regime break from <span class="mono">tests/test_live_wiring.py</span>). <b>Left</b> — the band brackets the true optimum under the correct model; at the jump the optimum briefly <em>escapes</em> the band still priced off stale, cheap observations (vermillion) — the silent staleness the monitor exists to surface. <b>Right</b> — the Shiryaev–Roberts statistic crawls flat (median R ≈ 1.4) then <b>explodes past its alarm threshold ~6 rounds after the jump</b>, at zero cost to the certificate. Regenerated by <span class="mono">scripts/viz_gen/watch_alarm.py</span>.</figcaption>
+    </figure>
+    <figure style="margin-top:36px">
+      <img src="assets/live_wiring_2026.png" alt="The Shiryaev-Roberts validity statistic on real METR-LA: it stays quiet below the alarm threshold under the correctly-modelled null on 20 of 20 real seeds, and crosses the threshold seven rounds after an injected regime shift.">
+      <figcaption><b>Soundness, now observable, on real METR-LA.</b> The same Shiryaev–Roberts detector CERT-FLOW runs live inside <span class="mono">round()</span> (<span class="mono">planner.sr</span>): under the correctly-modelled null it stays below the alarm threshold — <b>quiet on 20/20</b> real replay days — and catches an injected regime shift <b>~7 rounds</b> later, at zero cost to the certificate.</figcaption>
+    </figure>
+    <div class="stats" style="margin-top:36px">
+      <div class="card"><div class="dir">real METR-LA</div><div class="big">0.0000</div><div class="lab">coverage violations, every mode — 20 seeds × 288 rounds against the recording's true costs</div></div>
+      <div class="card"><div class="dir">validity monitor</div><div class="big">20/20</div><div class="lab">replay days quiet — WATCH martingale + Shiryaev–Roberts, zero false alarms</div></div>
+      <div class="card"><div class="dir">width, shrinking</div><div class="big">−26.6%</div><div class="lab">certified width recovered by sum-level UB on real traffic, at 0.0000 violations (licensed Tier-2 goes to −62.4%)</div></div>
+      <div class="card"><div class="dir">cost to certificate</div><div class="big">0</div><div class="lab">the monitor is purely observational — identical (LB, UB, confidence) stream, on or off</div></div>
+    </div>
+    <div class="reveal" style="margin-top:68px">
+      <p class="eyebrow">Width, sensing, speed — the measured picture</p>
+      <h2 style="font-size:clamp(26px,3.6vw,38px)">Wide but shrinking. Sensing that pays. No crossover.</h2>
+    </div>
+    <figure style="margin-top:36px">
+      <img src="assets/width_methods.png" alt="Certified width on real METR-LA relative to the default Bonferroni: PASC +24.7% wider (block-max, experimental); sum-aware UB -23.6% and CIA-UB -26.6% tighter, both at zero violations; the hatched ShrinkLicense Tier-2 bar -62.4% at 0.51% measured violations, a licensed a-posteriori claim." style="background:#fff">
+      <figcaption><b>Every width-pricing option on one paired run</b> (real METR-LA, 10 seeds × 288 rounds). The three <b>a-priori</b> sum-level modes hold <b>0.0000</b> violations; sum-level calibration tightens <b>24–27%</b> where the union tax lives (long optimistic paths, L≈14–18), while the block-max <b>PASC</b> radius starves and lands <b>+24.7%</b> wider — the sign is a path-length story, not a bug (the honest negative, kept experimental). The hatched <b>ShrinkLicense</b> tier (<b>−62.4%</b> at <b>0.51%</b> measured miscoverage) is a-posteriori and anytime-valid — a different claim from the distribution-free certificate. Regenerated by <span class="mono">scripts/viz_gen/width_methods.py</span>.</figcaption>
+    </figure>
+    <figure style="margin-top:36px">
+      <img src="assets/sensing_regret.png" alt="Median route regret on real METR-LA for four sensing policies: hybrid 38.3 s, pure gap-directed 65.1 s, max-age 80.8 s, random 116.3 s; hybrid is 41 percent below the default, all at zero coverage violations." style="background:#fff">
+      <figcaption><b>Objective-matched sensing wins on real route regret.</b> On real METR-LA (10 seeds × 288 rounds) the <b>hybrid</b> policy cuts median route regret <b>−41%</b> vs the shipped pure gap-directed default (38.3 s vs 65.1 s) and dominates the max-age / random baselines — all at <b>0.0000</b> violations and ~1 ms/round. It redirects the sensing budget toward the expected-best route only when the certificate provably cannot close ε, so it never trades the certificate away. Recommended via <span class="mono">recommended_config()</span>.</figcaption>
+    </figure>
+    <figure style="margin-top:36px">
+      <img src="assets/crossover_regret.png" alt="Two-panel line chart: certified CERT-FLOW regret is at or below the fast uncertified replanner at every drift level including a static map (no crossover), and the fast planner's broken-promise overrun grows with drift while the certified upper bound is never exceeded." style="background:#fff">
+      <figcaption><b>There is no quality crossover to wait for.</b> On identical worlds (12×12, 15 seeds) the certified planner's regret is <b>≤</b> the fast uncertified replanner's at <b>every</b> drift level — even the static map (ρ=0: 0.020 vs 0.036). The fast planner's point promise is broken on <b>62–97%</b> of rounds with the overrun growing 0.15 → 6.6 cost units, while the certified upper bound is <b>never</b> exceeded (overrun ≡ 0). Its entire edge is <b>latency</b> — you pay ~ms/round for promises that hold.</figcaption>
+    </figure>
+    <div class="verdict" style="margin-top:22px">
+      <span class="pill win">soundness HOLDS on real data</span>
+      <span class="pill win">width shrinking: −27% recovered at 0 violations</span>
+      <span class="pill win">hybrid sensing −41% regret</span>
+      <span class="pill lose">PASC wider on long paths</span>
+    </div>
+    <p class="note">Wired behind <span class="mono">PlannerConfig(watch_monitor=True)</span>, <span class="mono">sum_aware_ub=True</span> / <span class="mono">cia_path_certificate()</span>, <span class="mono">shrink_license=True</span>, and <span class="mono">hybrid_sensing=True</span>; full write-ups in <a href="https://github.com/Archerkattri/CERT-FLOW/blob/main/docs/results/width-attack-2026.md">width-attack-2026.md</a>, <a href="https://github.com/Archerkattri/CERT-FLOW/blob/main/docs/results/hybrid-sensing-2026.md">hybrid-sensing-2026.md</a>, <a href="https://github.com/Archerkattri/CERT-FLOW/blob/main/docs/results/crossover-2026.md">crossover-2026.md</a>, and <a href="https://github.com/Archerkattri/CERT-FLOW/blob/main/docs/results/live-wiring-2026.md">live-wiring-2026.md</a>. The program's meta-lesson, kept honest: the <b>certify/verify</b> layer survives real data — and the width it costs is now measurably shrinking.</p>
+
+    <div class="reveal" style="margin-top:68px">
+      <p class="eyebrow">The verdict scoreboard</p>
+      <h2 style="font-size:clamp(26px,3.6vw,38px)">Where it wins — and where it doesn't.</h2>
+      <p class="lead">One honest table, every number traced to a committed result doc. Plain verdict words; the <span class="mono">FAIL</span> and <span class="mono">WEAK</span> rows stay in.</p>
+      <div class="tblwrap">
+        <table class="scoreboard">
+          <thead><tr><th>Area</th><th>CERT-FLOW</th><th>Best alternative</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr class="pass"><td>Coverage under real drift</td><td><span class="val">1.000</span> coverage, every condition</td><td>AD*/ARA* <b>0.02–0.07</b> valid (real METR-LA)</td><td><span class="pill win">PASS</span><span class="just">decisively better — validity is the axis a route certificate lives on</span></td></tr>
+            <tr class="pass"><td>vs CIA <span class="dim">(closest conformal)</span></td><td>holds <span class="val">0.95–1.00</span> at every staleness gap</td><td>CIA collapses <b>0.95 → 0.20</b> under staleness</td><td><span class="pill win">PASS</span><span class="just">on validity — honest cost: up to <b>~49×</b> wider at 24 h</span></td></tr>
+            <tr class="weak"><td>Interval tightness</td><td>valid but <span class="val">1–2 orders wider</span>; sum-level UB recovers <b>−26.6%</b> real-traffic width at 0 violations; licensed Tier-2 <b>−62.4%</b> at 0.51% measured</td><td>AD*-semantics intervals narrow (but invalid)</td><td><span class="pill warn">WEAK, SHRINKING</span><span class="just">soundness costs width, now measurably recoverable — residual = the drift price</span></td></tr>
+            <tr class="pass"><td>Sensing</td><td>objective-matched hybrid <b>−41%</b> median route regret on real METR-LA (recommended); pure gap-directed dominated</td><td>CTP-RS-style VOI <b>0.48</b></td><td><span class="pill win">PASS</span> <span class="pill lose">FAIL</span><span class="just">hybrid (default-recommended) wins <em>and</em> carries a certificate VOI lacks; pure gap-directed stays documented</span></td></tr>
+            <tr class="fail"><td>Static-grid / continental speed</td><td>1.5 ms scratch · <span class="val">3.7 ms</span> per certified round</td><td>JPS+ <b>~4 µs</b> · Hub Labels <b>0.56 µs</b></td><td><span class="pill lose">FAIL</span><span class="just">on raw latency, by design — but no quality crossover: certified regret ≤ the fast planner's at every drift, whose promises break on 62–97% of rounds</span></td></tr>
+            <tr class="pass"><td>Bounded cost-change absorption</td><td><span class="val">0.015–0.34 ms</span></td><td>CRP <b>~1 s</b> recustomization</td><td><span class="pill win">PASS</span><span class="just">orders faster on the "costs moved, keep planning" operation</span></td></tr>
+            <tr class="pass"><td>Observability <span class="dim">(WATCH / SR)</span></td><td>quiet <span class="val">20/20</span> real seeds; injected shift caught in <b>~6–7 rounds</b></td><td>no competitor ships this</td><td><span class="pill win">PASS</span><span class="just">novel — coverage is now a live, alarming quantity</span></td></tr>
+            <tr class="mixed"><td>Multi-agent</td><td>additive fleet certificate <span class="val">sound + exact</span> (survives)</td><td>joint TEAM-CERT (tighter on synthetic only)</td><td><span class="pill dir">MIXED</span><span class="just">additive ports; joint <b>falsified</b> on real METR-LA</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Read it straight: CERT-FLOW wins <b>soundness</b> and <b>observability</b> decisively; its interval width is <b>wide but shrinking</b> (sum-level calibration recovers a measured 24–27% at zero violations, the licensed tier goes further at a measured self-revoking cost); hybrid sensing is a real-data <b>PASS</b>; and it <b>loses on static-map raw latency by design</b>. Sources: <a href="https://github.com/Archerkattri/CERT-FLOW/tree/main/docs/results">docs/results/</a> — extern-baselines, cia-comparison, width-attack-2026, hybrid-sensing-2026, crossover-2026, published-speed-comparison, live-wiring-2026, multiagent.</p>
+    </div>
+  </div>
+</section>
+
+<section id="theory">
+  <div class="wrap reveal">
+    <p class="eyebrow">The theory</p>
+    <h2>Seven results — including a proof that the design is optimal.</h2>
+    <div class="chips">
+      <div class="chip"><b>T1a / T1b</b><span>Coverage at the claimed level — for observable costs, and for latent costs at a doubled margin.</span></div>
+      <div class="chip"><b>T2′ — certifiability threshold</b><span>A target gap ε is sustainable iff the sensing rate beats drift. Certification is a rate, not a state (proven both directions).</span></div>
+      <div class="chip"><b>T4 — sum-aware certificate</b><span>A √L-tighter upper bound, with the selection-bias hazard it creates and the freshness gate that controls it.</span></div>
+      <div class="chip"><b>T5 — impossibility</b><span>No uniform lower bound beats Bonferroni by more than log factors. The certificate's asymmetry is provably optimal.</span></div>
+      <div class="chip"><b>T6 — decision-uniform validity</b><span>Validity over exactly the rounds a policy acts on — α-spent where the trajectory consumes it.</span></div>
+      <div class="chip"><b>T7 — churn-measured floor</b><span>Focused sensing suppresses path churn rather than chasing it; the floor uses the measured churn set.</span></div>
+    </div>
+    <p class="note">Full statements + proofs in the theory companion (<span class="mono">paper/theory.tex</span>); working notes in <span class="mono">docs/theory</span>.</p>
+  </div>
+</section>
+
+<section id="boundaries">
+  <div class="wrap reveal">
+    <p class="eyebrow">Honest boundaries</p>
+    <h2>What it does <em>not</em> win — stated plainly.</h2>
+    <p class="lead">A certificate is only as trustworthy as its author's honesty about the edges. These are measured, documented, and shipped alongside the wins.</p>
+    <div class="bounds">
+      <div class="bound"><h3>Static, known maps</h3><p>On a frozen, fully-known graph, optimized planners (Hub Labels, CH) answer in microseconds and CERT shouldn't be used — its value begins only when costs drift. CERT reaches that speed class only <em>through proof</em>, when the certificate says it's safe.</p></div>
+      <div class="bound"><h3>Age-weighting alone</h3><p>On a bare residual stream, our age-weighted quantile ties fixed-weight NexCP — the real edge over exchangeable conformal is the explicit ρ·age drift term and the sensing loop, not the weighting. Reported, not buried.</p></div>
+      <div class="bound"><h3>Single-corridor mazes</h3><p>Where there is only one route, route-critical sensing provably cannot help — confirmed by a maze negative control. The claim's boundary, not a defect.</p></div>
+      <div class="bound"><h3>Real off-road drift (FoMo)</h3><p>On a full year of forest-trail traversal costs, path-level coverage holds at 1.000 but the marginal edge guarantee strains slightly (0.87 vs 0.90) — real winter→summer shifts are harsher than bounded synthetic drift. An honest datapoint, not a perfect one.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="cite">
+  <div class="wrap reveal">
+    <p class="eyebrow">Use it</p>
+    <h2>Reproducible to the last number.</h2>
+    <div class="grid2">
+      <div>
+        <h3>Run it</h3>
+<pre><span class="c"># clone, install, test</span>
+git clone https://github.com/Archerkattri/CERT-FLOW
+cd CERT-FLOW
+python -m venv cert_env &amp;&amp; <span class="k">source</span> cert_env/bin/activate
+pip install -e <span class="k">".[dev,fast]"</span> pandas h5py tables
+pytest   <span class="c"># 250 tests · core sweep ≈ 100 s</span></pre>
+        <p class="muted" style="font-size:14.5px">Every figure and table regenerates from a script in <span class="mono">scripts/</span>; results live in <span class="mono">docs/results/</span>.</p>
+      </div>
+      <div>
+        <h3>Cite it</h3>
+<pre>@article{attri2026certflow,
+  author = {Attri, Krishi},
+  title  = {{CERT}: Certified Route Planning
+            under Drifting Costs},
+  year   = {2026},
+  doi    = {10.31224/7306}
+}</pre>
+        <div class="links-row">
+          <a href="https://doi.org/10.31224/7306">Paper · engrXiv</a>
+          <a href="https://github.com/Archerkattri/CERT-FLOW">Code · GitHub</a>
+          <a href="https://doi.org/10.5281/zenodo.20631475">Software · Zenodo</a>
+          <a href="https://orcid.org/0009-0005-4695-6467">ORCID</a>
+          <a href="https://scholar.google.com/citations?hl=en&user=VW1YUNYAAAAJ">Scholar</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer><div class="wrap">
+  <strong style="color:var(--muted)">CERT·FLOW</strong> — Certified Route Planning under Drifting Costs ·
+  by <a href="https://orcid.org/0009-0005-4695-6467">Krishi Attri</a> ·
+  MIT licensed · <a href="https://doi.org/10.31224/7306">doi:10.31224/7306</a>
+</div></footer>
+
+<script>
+  document.documentElement.classList.remove('no-js');
+  // scroll reveal
+  const io = new IntersectionObserver((es) => {
+    es.forEach(e => { if (e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach((el,i) => {
+    el.style.transitionDelay = (Math.min(i,4)*60) + 'ms'; io.observe(el);
+  });
+  // play videos only while in view (perf + premium feel)
+  const vio = new IntersectionObserver((es) => {
+    es.forEach(e => { const v = e.target;
+      if (e.isIntersecting) v.play && v.play().catch(()=>{}); else v.pause && v.pause(); });
+  }, { threshold: 0.25 });
+  document.querySelectorAll('video').forEach(v => vio.observe(v));
+  // active nav section
+  const links = [...document.querySelectorAll('nav .links a[href^="#"]')];
+  const map = {}; links.forEach(a => map[a.getAttribute('href').slice(1)] = a);
+  const nio = new IntersectionObserver((es) => {
+    es.forEach(e => { if (e.isIntersecting){
+      links.forEach(a => a.classList.remove('active'));
+      if (map[e.target.id]) map[e.target.id].classList.add('active'); } });
+  }, { rootMargin: '-45% 0px -50% 0px' });
+  document.querySelectorAll('section[id]').forEach(s => nio.observe(s));
+</script>
+</body>
+</html>
