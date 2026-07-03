@@ -714,7 +714,9 @@ def make_fig5_cia_collapse():
 
     ax_cov.axhline(d["target_coverage"], color=GRY1, linewidth=0.8,
                    linestyle=":", zorder=0)
-    ax_cov.annotate("target 0.90", xy=(0.13, 0.815),
+    # Label sits along the target line in the empty mid-plot band, clear of the
+    # gap-0 markers/error bars it previously collided with.
+    ax_cov.annotate("target 0.90", xy=(2.4, 0.855),
                     fontsize=FONT_ANNOT, color=GRY1)
     ax_cov.set_ylim(0, 1.05)
     ax_cov.set_ylabel("coverage of true path sums")
@@ -781,9 +783,12 @@ def make_fig6_interval_mechanism():
                 color=RED, label="observation (resets age)")
     ax.set_xlabel("time $t$ (rounds)")
     ax.set_ylabel("edge cost")
-    ax.legend(frameon=False, fontsize=FONT_LEGEND, loc="lower right")
+    # Legend placed fully below the axes (clear of the interval band).
+    ax.legend(frameon=False, fontsize=FONT_LEGEND, loc="upper center",
+              bbox_to_anchor=(0.5, -0.42), ncol=1, handlelength=1.6,
+              borderaxespad=0.0)
     out = FIG_DIR / "fig_interval_mechanism.pdf"
-    fig.savefig(out)
+    fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
     return out
 
