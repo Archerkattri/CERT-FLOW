@@ -27,4 +27,6 @@ jobs:
         # Data-dependent tests (METR-LA, MovingAI, DIMACS-NY graphs) skip on a
         # clean checkout since those datasets are not committed; the CPU suite
         # runs in full. See "Reproducing every number" in the README.
-        run: pytest -q
+        # `python -m pytest` (not the bare console script) so the repo root is on
+        # sys.path — tests/test_tier2_smoke.py imports the top-level scripts/ pkg.
+        run: python -m pytest -q
