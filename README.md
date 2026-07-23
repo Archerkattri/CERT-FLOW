@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/certflow/"><img alt="PyPI" src="https://img.shields.io/pypi/v/certflow?color=009E73"></a>
+  <a href="https://pepy.tech/project/certflow"><img alt="Downloads" src="https://static.pepy.tech/badge/certflow"></a>
   <a href="https://github.com/Archerkattri/CERT-FLOW/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Archerkattri/CERT-FLOW/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-56B4E9">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-1a7f37">
