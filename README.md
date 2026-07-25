@@ -154,8 +154,13 @@ To develop or reproduce the paper numbers, work from a clone:
 git clone https://github.com/Archerkattri/CERT-FLOW && cd CERT-FLOW
 python -m venv cert_env && source cert_env/bin/activate
 pip install -e ".[dev,fast,realworld]" h5py
-pytest   # 268 passed / 28 skipped with the real datasets; 260 / 28 on a clean checkout (data-dependent tests skip)
+pytest   # core CPU suite; real-data benchmarks skip when their gitignored datasets are absent
 ```
+
+Run `pytest -rs` to list the active data-dependent skips. A clean checkout
+does not include the DIMACS New York road graph, MovingAI maps/scenarios, or
+METR-LA traffic data; their benchmark tests skip explicitly while the
+dataset-independent suite still runs in full.
 
 ## Results
 
