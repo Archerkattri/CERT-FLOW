@@ -35,6 +35,11 @@ real-world audit artifacts. It shows budgeted sensing, abrupt-shift recovery,
 fresh conditional audits, and release evidence in one view.
 
 ## Why this is different
+## Architecture at a glance
+
+![CERT-FLOW-current architecture](assets/readme_flow.svg)
+
+CERT-FLOW closes the loop from stale-cost detection to sensing and a route whose objective interval is still certified.
 
 Most planners produce a path. Some planners produce a nominal cost. CERT-FLOW
 produces a path together with a live, inspectable statement about the unknown
