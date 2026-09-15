@@ -6,6 +6,24 @@ All notable changes to CERT-FLOW are documented here. The format follows
 
 ## [Unreleased]
 
+- Added exact search-backend selection for large structured grids: the
+  recommended `auto` profile uses fresh numba flat-Dijkstra queries when they
+  beat D* Lite queue repair, while generic graphs retain incremental D* Lite.
+  Warm-up calibration now uses deterministic round-robin repeats, avoiding
+  repeated full-graph age scans during multi-edge bursts. Full 3-seed scale
+  p95 at 60x60 is 22.28 ms with 85.3% validity.
+- Added composition-safe CIA upper-bound pricing (`cia_ub=True`) with an
+  explicit LB/UB alpha split and the selected-path freshness gate.
+- Added experimental age-conditioned edge pricing (`age_stratify=True`) with
+  an atomic pooled fallback when any path stratum lacks support.
+- Added the opt-in CERT-FLOW v3 upgrade layer in `certflow.upgrades`:
+  selection-conditional audit certificates, decision-focused bounded-risk
+  control, trajectory-level conformal/reachable tubes, learned evidence-scale
+  calibration, budgeted UCB active sensing, joint fleet/congestion pricing,
+  and regime-aware calibration recovery. `CertPlanner` exposes hooks for all
+  seven through its config flags and helper methods; legacy defaults are
+  unchanged.
+
 ## [1.1.0] - 2026-07-02
 
 Multi-agent certificate + a 2026 conformal upgrade layer. All new behavior is

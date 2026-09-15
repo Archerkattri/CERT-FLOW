@@ -23,6 +23,41 @@ def test_quantile_inf_during_warmup():
     assert s.ready(0.5, t=0.0)
 
 
+def test_scorer_reuses_weights_until_buffer_changes():
+    scorer = ConformalScorer(rho_w=0.95)
+    scorer.push(0.2, t=0.0)
+    scorer.push(0.4, t=1.0)
+    first = scorer._weights(2.0)
+    assert first is scorer._weights(2.0)
+    scorer.push(0.6, t=2.0)
+    assert scorer._weights(2.0) != first
+    assert scorer._weights(2.0) is scorer._weights(2.0)
+
+
+def test_scorer_cache_tracks_mutable_decay_and_has_a_bound():
+    scorer = ConformalScorer(rho_w=1.0)
+    for i in range(20):
+        scorer.push(float(i), t=0.0)
+    assert scorer.quantile(0.1, t=10.0) == 18.0
+
+    # Public configuration has historically been writable.  A mutation must
+    # never serve the old quantile merely because alpha and time are unchanged.
+    scorer.rho_w = 0.01
+    fresh = ConformalScorer(rho_w=0.01)
+    for i in range(20):
+        fresh.push(float(i), t=0.0)
+    assert scorer.quantile(0.1, t=10.0) == fresh.quantile(0.1, t=10.0)
+
+    for t in range(10_000):
+        scorer.quantile(0.1, t=float(t))
+    assert len(scorer._quantile_cache) <= scorer._QUANTILE_CACHE_LIMIT
+
+
+def test_scorer_rejects_empty_buffer_capacity():
+    with pytest.raises(ValueError, match="max_buffer"):
+        ConformalScorer(max_buffer=0)
+
+
 def test_exchangeable_coverage_iid():
     """rho_w=1 on iid residuals: marginal coverage >= 1 - alpha."""
     rng = np.random.default_rng(0)

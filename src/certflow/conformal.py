@@ -18,6 +18,9 @@ The quantile returns +inf while the buffer cannot support level alpha
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+from collections import OrderedDict
+
 import math
 from dataclasses import dataclass
 
@@ -51,6 +54,8 @@ class ConformalScorer:
             raise ValueError("rho_w must be in (0, 1]")
         if eps_tv < 0.0:
             raise ValueError("eps_tv must be >= 0")
+        if max_buffer < 1:
+            raise ValueError("max_buffer must be >= 1")
         if shift_model not in ("tv", "lp"):
             raise ValueError("shift_model must be 'tv' or 'lp'")
         if eps_lp < 0.0:
@@ -71,6 +76,58 @@ class ConformalScorer:
         self.rho_lp = rho_lp
         self._buf: list[CalSample] = []
         self._signed: list[CalSample] = []  # signed deviations (sum-aware UB)
+        self._weights_cache_t: float | None = None
+        self._weights_cache: tuple[float, ...] = ()
+        # Query-time memoization is deliberately bounded.  A long-lived
+        # planner can ask for many distinct timestamps without pushing new
+        # calibration observations, so an unbounded dictionary would turn
+        # read-only use into a memory leak.
+        self._quantile_cache: OrderedDict[tuple[float, float], float] = OrderedDict()
+        self._cache_config: tuple[object, ...] | None = None
+
+    _QUANTILE_CACHE_LIMIT = 256
+
+    def _current_cache_config(self) -> tuple[object, ...]:
+        """Return every public setting that can change a cached result.
+
+        The scorer historically exposed these settings as writable attributes.
+        Keep that compatibility, but detect supported mutations before serving
+        a cached value.  Invalid mutations are rejected at first use rather
+        than producing a numerically plausible but unsupported certificate.
+        """
+        rho_w = float(self.rho_w)
+        eps_tv = float(self.eps_tv)
+        max_buffer = int(self.max_buffer)
+        shift_model = str(self.shift_model)
+        eps_lp = float(self.eps_lp)
+        rho_lp = float(self.rho_lp)
+        if not math.isfinite(rho_w) or not 0.0 < rho_w <= 1.0:
+            raise ValueError("rho_w must be in (0, 1]")
+        if not math.isfinite(eps_tv) or eps_tv < 0.0:
+            raise ValueError("eps_tv must be >= 0")
+        if max_buffer < 1:
+            raise ValueError("max_buffer must be >= 1")
+        if shift_model not in ("tv", "lp"):
+            raise ValueError("shift_model must be 'tv' or 'lp'")
+        if not math.isfinite(eps_lp) or eps_lp < 0.0:
+            raise ValueError("eps_lp must be >= 0")
+        if not math.isfinite(rho_lp) or not 0.0 <= rho_lp < 1.0:
+            raise ValueError("rho_lp must be in [0, 1)")
+        return (rho_w, eps_tv, max_buffer, shift_model, eps_lp, rho_lp)
+
+    def _sync_cache_config(self) -> None:
+        config = self._current_cache_config()
+        if self._cache_config != config:
+            self._weights_cache_t = None
+            self._weights_cache = ()
+            self._quantile_cache.clear()
+            self._cache_config = config
+
+    def _invalidate_weight_cache(self) -> None:
+        self._weights_cache_t = None
+        self._weights_cache = ()
+        self._quantile_cache.clear()
+        self._cache_config = None
 
     def push(self, residual: float, t: float) -> None:
         self._buf.append(CalSample(residual, t))
@@ -78,12 +135,30 @@ class ConformalScorer:
             # drop the oldest by collection time (buffer arrives ~ordered)
             self._buf.sort(key=lambda s: s.t)
             del self._buf[0 : len(self._buf) - self.max_buffer]
+        self._invalidate_weight_cache()
 
     def __len__(self) -> int:
         return len(self._buf)
 
-    def _weights(self, t: float) -> list[float]:
-        return [self.rho_w ** max(0.0, t - s.t) for s in self._buf]
+    def clear(self) -> None:
+        """Drop calibration observations after an opt-in regime reset.
+
+        The default planner never calls this.  Regime-aware recovery uses it
+        to prevent stale pre-change scores from silently surviving an alarm.
+        """
+        self._buf.clear()
+        self._signed.clear()
+        self._invalidate_weight_cache()
+
+    def _weights(self, t: float) -> tuple[float, ...]:
+        """Return age weights, reusing the result for repeated same-time reads."""
+        self._sync_cache_config()
+        if self._weights_cache_t == t and len(self._weights_cache) == len(self._buf):
+            return self._weights_cache
+        weights = tuple(self.rho_w ** max(0.0, t - s.t) for s in self._buf)
+        self._weights_cache_t = t
+        self._weights_cache = weights
+        return weights
 
     def quantile(self, alpha: float, t: float) -> float:
         """Weighted (1-alpha)-quantile with test mass w~_{n+1} at +inf.
@@ -96,6 +171,12 @@ class ConformalScorer:
             raise ValueError("alpha must be in (0, 1)")
         if not self._buf:
             return math.inf
+        self._sync_cache_config()
+        key = (float(alpha), float(t))
+        cached = self._quantile_cache.get(key)
+        if cached is not None:
+            self._quantile_cache.move_to_end(key)
+            return cached
         w = self._weights(t)
         total = sum(w) + 1.0  # +1.0 is the test point's unnormalized weight
         target = (1.0 - alpha) * total
@@ -104,8 +185,16 @@ class ConformalScorer:
         for r, wi in pairs:
             acc += wi
             if acc >= target - 1e-12:
+                self._cache_quantile(key, r)
                 return r
+        self._cache_quantile(key, math.inf)
         return math.inf
+
+    def _cache_quantile(self, key: tuple[float, float], value: float) -> None:
+        self._quantile_cache[key] = value
+        self._quantile_cache.move_to_end(key)
+        while len(self._quantile_cache) > self._QUANTILE_CACHE_LIMIT:
+            self._quantile_cache.popitem(last=False)
 
     def cdf(self, x: float, t: float) -> float:
         """Weighted empirical CDF F_P(x) of the buffered scores, using the
@@ -230,6 +319,7 @@ class ConformalScorer:
             raise ValueError("alpha must be in (0, 1)")
         if block_len < 1:
             raise ValueError("block_len must be >= 1")
+        self._sync_cache_config()
         samples = sorted(self._signed, key=lambda s: s.t, reverse=True)
         n_blocks = len(samples) // block_len
         if n_blocks == 0:
@@ -253,6 +343,7 @@ class ConformalScorer:
         members (independence), so the per-block term is min(1, sum of member
         2*eps_tv*age terms), weighted like block_quantile."""
         samples = sorted(self._signed, key=lambda s: s.t, reverse=True)
+        self._sync_cache_config()
         n_blocks = len(samples) // block_len
         if n_blocks == 0:
             return 1.0
@@ -836,8 +927,8 @@ class ShiryaevRobertsDetector:
     """
 
     def __init__(self, threshold: float, epsilon: float = 0.5) -> None:
-        if threshold <= 1.0:
-            raise ValueError("threshold must be > 1")
+        if not math.isfinite(float(threshold)) or threshold <= 1.0:
+            raise ValueError("threshold must be finite and > 1")
         if not 0.0 < epsilon < 1.0:
             raise ValueError("epsilon must be in (0, 1)")
         self.threshold = threshold
@@ -850,6 +941,58 @@ class ShiryaevRobertsDetector:
     def update(self, p: float) -> float:
         e = conformal_e_value(p, self.epsilon)
         self.R = (1.0 + self.R) * e
+        self._peak = max(self._peak, self.R)
+        if self._alarm_t is None and self.R >= self.threshold:
+            self._alarm_t = self._t
+        self._t += 1
+        return self.R
+
+    @property
+    def peak(self) -> float:
+        return self._peak
+
+    @property
+    def alarm_round(self) -> int | None:
+        return self._alarm_t
+
+    def alarm(self) -> bool:
+        return self._alarm_t is not None
+
+
+class MixtureShiryaevRobertsDetector:
+    """Shiryaev--Roberts detector with a fixed mixture of betting shapes.
+
+    A single power bet can be poorly matched to the unknown severity of a
+    change.  A convex combination of valid e-values is still a valid e-value,
+    so this mixture keeps the same ARL/Ville alarm scope while reducing
+    dependence on one hand-chosen betting exponent.
+    """
+
+    def __init__(self, threshold: float,
+                 epsilons: Sequence[float] = (0.1, 0.25, 0.5, 0.75, 0.9)) -> None:
+        if not math.isfinite(float(threshold)) or threshold <= 1.0:
+            raise ValueError("threshold must be finite and > 1")
+        vals = tuple(float(e) for e in epsilons)
+        if not vals or any(not math.isfinite(e) or not 0.0 < e < 1.0 for e in vals):
+            raise ValueError("epsilons must be a non-empty sequence in (0, 1)")
+        self.threshold = float(threshold)
+        self.epsilons = vals
+        self.R = 0.0
+        self._stats = [0.0 for _ in self.epsilons]
+        self._t = 0
+        self._alarm_t: int | None = None
+        self._peak = 0.0
+        self.last_e_value = 1.0
+
+    def update(self, p: float) -> float:
+        e_values = [conformal_e_value(p, epsilon) for epsilon in self.epsilons]
+        self.last_e_value = sum(e_values) / len(e_values)
+        # Mixture of SR restart statistics, not a single SR run driven by the
+        # averaged e-value.  Each component keeps its own change-point memory;
+        # their fixed convex combination remains an ARL-valid nonnegative
+        # process and avoids washing out the best-matched betting shape.
+        self._stats = [(1.0 + stat) * e for stat, e in zip(self._stats, e_values)]
+        self.R = sum(self._stats) / len(self._stats)
         self._peak = max(self._peak, self.R)
         if self._alarm_t is None and self.R >= self.threshold:
             self._alarm_t = self._t

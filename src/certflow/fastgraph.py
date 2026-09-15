@@ -309,6 +309,47 @@ class FastDijkstra:
         return path, float(dist[target_idx])
 
 
+class FastDijkstraSearch:
+    """Mutable search facade backed by an exact flat Dijkstra query.
+
+    It intentionally mirrors the small public surface CertPlanner needs from
+    ``FastDStarLite``.  The facade is useful when a graph is small enough that
+    repairing a long-lived D* Lite queue costs more than two fresh numba
+    queries; all edge updates still write into the shared flat graph.
+    """
+
+    def __init__(self, flat: FlatGraph, start: Node, goal: Node) -> None:
+        self.flat = flat
+        self._start_node = start
+        self._goal_node = goal
+        self._start = flat.index_of[start]
+        self._goal = flat.index_of[goal]
+        self.pops = 0
+
+    def update_edges(self, costs: dict[Edge, float]) -> None:
+        for (u, v), w in costs.items():
+            if w <= 0:
+                raise ValueError(f"edge cost must be > 0, got {w} for {(u, v)}")
+            slot = self.flat.slot_of(
+                self.flat.index_of.get(u, -1), self.flat.index_of.get(v, -1)
+            )
+            if slot < 0:
+                raise ValueError(f"edge {(u, v)} not in initial graph; cannot add edges")
+            self.flat.cost[slot] = w
+
+    def set_start(self, node: Node) -> None:
+        if node not in self.flat.index_of:
+            raise ValueError(f"start node {node!r} not in graph")
+        self._start_node = node
+        self._start = self.flat.index_of[node]
+
+    def shortest_path(self) -> tuple[list[Node] | None, float]:
+        path, cost = FastDijkstra(self.flat, self._start).shortest_path(self._goal)
+        if path is None:
+            return None, cost
+        return [self.flat.node_of(i) for i in path], cost
+
+
 # --------------------------------------------------------------------------- #
 # D* Lite — numba inner-loop kernel (optional) and pure-Python fallback
 # --------------------------------------------------------------------------- #
@@ -334,6 +375,7 @@ def _compute_kernel(
     inq_live,
     counter0,
     km,
+    heuristic,
     start,
     goal,
 ):
@@ -397,7 +439,7 @@ def _compute_kernel(
             sk0 = INF_
             sk1 = INF_
         else:
-            sk0 = m_s + km
+            sk0 = m_s + heuristic[start] + km
             sk1 = m_s
 
         k_old0 = heap_key0[0]
@@ -415,7 +457,7 @@ def _compute_kernel(
             kn0 = INF_
             kn1 = INF_
         else:
-            kn0 = m_u + km
+            kn0 = m_u + heuristic[u] + km
             kn1 = m_u
 
         if _lt(k_old0, k_old1, 0.0, kn0, kn1, 0.0):
@@ -465,7 +507,7 @@ def _compute_kernel(
                     p, g, rhs, indptr, indices, cost,
                     inq_key0, inq_key1, inq_live,
                     heap_key0, heap_key1, heap_node, heap_tie, heap_size,
-                    km, goal, counter,
+                    km, heuristic, goal, counter,
                 )
         else:
             g[u] = INF_
@@ -473,7 +515,7 @@ def _compute_kernel(
                 u, g, rhs, indptr, indices, cost,
                 inq_key0, inq_key1, inq_live,
                 heap_key0, heap_key1, heap_node, heap_tie, heap_size,
-                km, goal, counter,
+                km, heuristic, goal, counter,
             )
             for t in range(r_indptr[u], r_indptr[u + 1]):
                 p = r_indices[t]
@@ -481,7 +523,7 @@ def _compute_kernel(
                     p, g, rhs, indptr, indices, cost,
                     inq_key0, inq_key1, inq_live,
                     heap_key0, heap_key1, heap_node, heap_tie, heap_size,
-                    km, goal, counter,
+                    km, heuristic, goal, counter,
                 )
 
     return pops, counter
@@ -535,7 +577,7 @@ def _update_vertex(
     u, g, rhs, indptr, indices, cost,
     inq_key0, inq_key1, inq_live,
     heap_key0, heap_key1, heap_node, heap_tie, heap_size,
-    km, goal, counter,
+    km, heuristic, goal, counter,
 ):
     """Recompute rhs[u] (if u != goal) and (re)queue u if inconsistent."""
     INF_ = np.inf
@@ -555,7 +597,7 @@ def _update_vertex(
             k0 = INF_
             k1 = INF_
         else:
-            k0 = m + km
+            k0 = m + heuristic[u] + km
             k1 = m
         inq_key0[u] = k0
         inq_key1[u] = k1
@@ -571,7 +613,7 @@ def _update_tails_kernel(
     g, rhs, indptr, indices, cost,
     inq_key0, inq_key1, inq_live,
     heap_key0, heap_key1, heap_node, heap_tie, heap_size,
-    km, goal, counter0,
+    km, heuristic, goal, counter0,
 ):
     """Re-evaluate each tail vertex after a batch cost update (numba path).
 
@@ -585,7 +627,7 @@ def _update_tails_kernel(
             tails[i], g, rhs, indptr, indices, cost,
             inq_key0, inq_key1, inq_live,
             heap_key0, heap_key1, heap_node, heap_tie, heap_size,
-            km, goal, counter,
+            km, heuristic, goal, counter,
         )
     return counter
 
@@ -599,9 +641,9 @@ class FastDStarLite:
     is integer-indexed. `flat` may be shared/rebuilt by the caller; edge-cost
     updates write straight into `flat.cost`.
 
-    Heuristic: zero (admissible/consistent for all positive costs), matching the
-    planner's default. A custom heuristic is intentionally not supported here —
-    the planner never supplies one.
+    Heuristic: zero by default (admissible/consistent for all positive costs).
+    Callers may provide a static admissible/consistent lower-bound array to
+    reduce queue work on structured graphs.
     """
 
     def __init__(
@@ -611,6 +653,7 @@ class FastDStarLite:
         goal: Node,
         flat: FlatGraph | None = None,
         use_numba: bool | None = None,
+        heuristic: np.ndarray | None = None,
     ) -> None:
         self.flat = flat if flat is not None else FlatGraph(graph, extra_nodes=(start, goal))
         if start not in self.flat.index_of or goal not in self.flat.index_of:
@@ -620,6 +663,15 @@ class FastDStarLite:
         self._goal_node = goal
         self._start = self.flat.index_of[start]
         self._goal = self.flat.index_of[goal]
+        if heuristic is None:
+            self._heuristic = np.zeros(self.flat.n, dtype=np.float64)
+        else:
+            h = np.asarray(heuristic, dtype=np.float64)
+            if h.shape != (self.flat.n,) or np.any(~np.isfinite(h)) or np.any(h < 0.0):
+                raise ValueError(
+                    "heuristic must be a finite non-negative array matching the flat graph"
+                )
+            self._heuristic = h.copy()
         self.pops = 0
         self._use_numba = _HAVE_NUMBA if use_numba is None else (use_numba and _HAVE_NUMBA)
         self._init_search()
@@ -656,7 +708,7 @@ class FastDStarLite:
         self._counter_val = 1
         # seed the queue with the goal (rhs[goal]=0 -> key (km, 0))
         g0 = self._goal
-        k0 = self._km
+        k0 = self._heuristic[g0] + self._km
         k1 = 0.0
         self._inq_key0[g0] = k0
         self._inq_key1[g0] = k1
@@ -686,7 +738,7 @@ class FastDStarLite:
         m = g if g < rhs else rhs
         if m == INF:
             return (INF, INF)
-        return (m + self._km, m)
+        return (m + self._heuristic[n] + self._km, m)
 
     def _push(self, n: int) -> None:
         k = self._key(n)
@@ -731,7 +783,9 @@ class FastDStarLite:
             ms = g[start]
             if rhs[start] < ms:
                 ms = rhs[start]
-            start_key = (INF, INF) if ms == INF else (ms + self._km, ms)
+            start_key = (INF, INF) if ms == INF else (
+                ms + self._heuristic[start] + self._km, ms
+            )
             if top is None:
                 break
             k_old, u = top
@@ -769,7 +823,8 @@ class FastDStarLite:
             self._heap_key0, self._heap_key1, self._heap_node, self._heap_tie,
             self._heap_size,
             self._inq_key0, self._inq_key1, self._inq_live,
-            self._counter_val, self._km, self._start, self._goal,
+            self._counter_val, self._km, self._heuristic,
+            self._start, self._goal,
         )
         self.pops = int(pops)
         self._counter_val = int(counter_end)
@@ -814,23 +869,31 @@ class FastDStarLite:
                 flat.indptr, flat.indices, flat.cost,
                 self._inq_key0, self._inq_key1, self._inq_live,
                 self._heap_key0, self._heap_key1, self._heap_node, self._heap_tie,
-                self._heap_size, self._km, self._goal, self._counter_val,
+                self._heap_size, self._km, self._heuristic,
+                self._goal, self._counter_val,
             ))
         else:
             for ui in tails:
                 self._update_vertex(ui)
 
     def set_start(self, node: Node) -> None:
-        """Move the agent's start to `node`. Heuristic is zero, so `km` is
-        unchanged (matching `graphcore.DStarLite` with the zero heuristic)."""
+        """Move the agent's start to ``node``.
+
+        A custom heuristic is goal-relative and does not encode the pairwise
+        start-motion heuristic required by D* Lite's ``km`` update.  Re-seed
+        that uncommon moving-start case from the current flat costs so it
+        remains exact; the fixed-start planner path keeps the incremental
+        state and is unaffected.
+        """
         if node not in self.flat.index_of:
             raise ValueError(f"start node {node!r} not in graph")
         ni = self.flat.index_of[node]
         if ni == self._start:
             return
-        # km += h(old_start, new_start); zero heuristic => += 0.
         self._start_node = node
         self._start = ni
+        if np.any(self._heuristic != 0.0):
+            self._init_search()
 
     def shortest_path(self) -> tuple[list[Node] | None, float]:
         """Repair and return `(path, cost)` from current start to goal in

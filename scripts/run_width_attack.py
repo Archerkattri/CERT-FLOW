@@ -6,11 +6,9 @@ Modes (all sharing one LB construction unless noted):
   (ii)  sum_aware      -- sum_aware_ub=True (T4 block-quantile UB, existing flag).
   (iii) pasc           -- path_calibration="pasc" (joint per-edge radius; the
                           known +25.1% regression, kept for completeness).
-  (iv)  cia-ub         -- default LB, UB replaced per round by the upper end of
-                          cia_path_certificate() on the incumbent when finite
-                          (a valid UB on OPT: the incumbent is a feasible path),
-                          else fall back to the default UB (fallback fraction
-                          recorded).
+  (iv)  cia-ub         -- live CIA path-sum UB with a split alpha budget and
+                          the selected-path freshness gate; falls back to the
+                          default UB while unsupported (fallback recorded).
   (v)   shrink         -- default certificate UNCHANGED (shrink_license=True is
                           purely observational); ADDITIONALLY records the Tier-2
                           licensed shrunk gap (diagnostics shrunk_gap + licensed_k)
@@ -29,7 +27,6 @@ Run: PYTHONPATH=src python scripts/run_width_attack.py [--quick]
 from __future__ import annotations
 
 import json
-import math
 import statistics as st
 import sys
 from multiprocessing import Pool
@@ -51,7 +48,7 @@ MODES = [
     ("default", dict(), "plain"),
     ("sum_aware", dict(sum_aware_ub=True), "plain"),
     ("pasc", dict(path_calibration="pasc"), "plain"),
-    ("cia-ub", dict(), "cia_ub"),
+    ("cia-ub", dict(cia_ub=True), "cia_ub"),
     ("shrink", dict(shrink_license=True), "shrink"),
 ]
 
@@ -103,10 +100,7 @@ def run_seed(task):
                 continue
             lb, ub = cert.lb, cert.ub
             if kind == "cia_ub":
-                cia = p.cia_path_certificate(cert.path)
-                if cia is not None and math.isfinite(cia.ub):
-                    ub = cia.ub
-                else:
+                if not p._last_cia_ub_used:
                     stats["cia_fallback"] += 1
             o = opt[i]
             stats["valid"] += 1

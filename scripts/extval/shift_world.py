@@ -1,6 +1,4 @@
-"""Regime-switching grid world for the CERT-FLOW RSS extended-validation cell
-CAL->TEST DISTRIBUTION SHIFT (the eps_tv / A2 TV-Lipschitz theorem).
-ADDITIONAL results for the RSS version; NOT a change to the published paper.
+"""Regime-switching grid world for calibration-to-test shift validation.
 
 This world subclasses ``certflow.drift._GridBase`` and reuses the published
 ``certflow.drift.BoundedDriftWorld`` READ-ONLY (no package edits), so the
@@ -34,8 +32,8 @@ Construction (faithful + deterministic):
     planner builds genuinely mixes pre- and post-shift residuals across the CP.
 
 ``rho_true(e)`` (the A1 bound the planner consumes) is, by default
-(``rho_true_mode="pre"``), the PRE-shift empirical bound -- so the planner is
-genuinely surprised by the post-shift regime, the way a deployed system
+(``rho_true_mode="pre"``), the PRE-shift empirical bound, so the planner uses
+stale pre-shift assumptions after deployment. A deployed system
 calibrated under one regime would be. This makes the shift bite: the test
 distribution is no longer the calibration distribution and an eps_tv=0
 (exchangeable) claim has no slack for it. The realised post-shift A1-violation

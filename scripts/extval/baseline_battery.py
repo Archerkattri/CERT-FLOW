@@ -1,7 +1,6 @@
 """Conformal baseline battery: age-weighting (CERT) vs NexCP vs ACI.
 
-ADDITIONAL results for the RSS version of the CERT-FLOW paper. NOT a change to
-the published paper; nothing here modifies src/certflow (imported read-only).
+Extended validation; nothing here modifies src/certflow (imported read-only).
 
 THE HEADLINE CELL. We put CERT's conformal scorer head-to-head against two
 faithful non-exchangeable conformal comparators ON THE SAME edge-cost residual
@@ -546,10 +545,10 @@ def main() -> None:
 
     print("=" * 80)
     print("CONFORMAL BASELINE BATTERY -- age-weighting (CERT) vs NexCP vs ACI")
-    print("ADDITIONAL RSS-version results; the published paper is UNCHANGED.")
+    print("EXTENDED VALIDATION; package behavior is unchanged by this runner.")
     print("Identical residual stream s=|obs-c_hat| + identical interval [c_hat+-q]")
     print("per dataset; methods differ ONLY in how q weights the calibration")
-    print("scores. Real numbers, produced now by running certflow read-only.")
+    print("scores. Metrics are measured by this run using certflow read-only.")
     print("=" * 80)
 
     all_rows = []

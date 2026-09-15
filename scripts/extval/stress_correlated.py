@@ -1,6 +1,4 @@
-"""CERT-FLOW RSS extended validation -- CELL: spatially-correlated + heavy-
-tailed drift (a moving congestion front).  ADDITIONAL results for the RSS
-version; NOT a change to the published paper.
+"""Extended validation: spatially correlated, heavy-tailed drift.
 
 What this does
 --------------
@@ -32,9 +30,8 @@ Two questions the cell asks:
         constant on both path bounds and cancels). Under INDEPENDENCE the sum
         pools ~sqrt(L) (ratio > 1: Bonferroni over-pays); under POSITIVE
         correlation the sum's spread approaches L*(per-edge spread), the joint
-        advantage ERODES, and the ratio falls toward 1. This is the OPPOSITE of
-        a naive "joint always wins under correlation" prior -- reported as a
-        SURPRISE, not buried.
+        advantage erodes, and the ratio falls toward 1. This tests the
+        limitation of assuming that a joint bound always wins under correlation.
 
   The package's own conformal.block_quantile (what cert.sum_aware_ub actually
         deploys) is ALSO reported, as a SECONDARY diagnostic. But it is a
@@ -44,8 +41,8 @@ Two questions the cell asks:
         clean width measurement, so the Q2 HEADLINE is the same-stream audit (a)
         above, and (b) is labelled confounded.
 
-Faithfulness
-------------
+Scope and provenance
+--------------------
 * No package edits. Worlds subclass certflow.drift._GridBase read-only; the
   planner is the published certflow.CertPlanner; the oracle is certflow.oracle.
 * The headline audit uses the planner's OWN incumbent path and the ground-truth
@@ -56,7 +53,7 @@ Faithfulness
 * rho_true (the A1 bound) is shared between the two worlds so CERT's inputs are
   byte-identical; each world's realised A1-violation rate vs that bound is
   measured and printed.
-* All numbers printed are produced by running real code now.
+* All reported metrics are measured by this run.
 
 Run:  cert_env/bin/python scripts/extval/stress_correlated.py
       (add --quick for a fast smoke; --family pareto for the Pareto tail)
@@ -256,6 +253,8 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=250)
     ap.add_argument("--latent-scale", type=float, default=0.06)
     ap.add_argument("--idio-scale", type=float, default=0.02)
+    ap.add_argument("--json", type=Path,
+                    help="persist the full correlated-fleet scorecard")
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
     if args.quick:
@@ -277,8 +276,8 @@ def main() -> None:
     )
 
     print("=" * 78)
-    print("CERT-FLOW RSS extended validation -- spatially-correlated + heavy-tailed")
-    print("drift (moving congestion front).  ADDITIONAL results, NOT the published paper.")
+    print("CERT-FLOW extended validation -- spatially correlated + heavy-tailed")
+    print("drift (moving congestion front).")
     print("=" * 78)
     print(f"family={args.family}  grid={G}x{G}  seeds={args.seeds}  "
           f"rounds={args.rounds}  alpha'={cfg_kwargs['alpha_prime']}  "
@@ -342,7 +341,7 @@ def main() -> None:
     print(f"      INDEP     : L*q(a'/L) / block_quantile(a') median = {B['blk_overpay_median']:.3f}")
     print()
     if math.isfinite(A["gt_overpay"]) and math.isfinite(B["gt_overpay"]):
-        print("  INTERPRETATION (this did NOT go the naive way -- see SURPRISES):")
+        print("  INTERPRETATION (including the correlation limitation):")
         print(f"    The joint half-width beats Bonferroni only when path-sum residuals")
         print(f"    CANCEL. Under matched INDEPENDENCE they pool ~sqrt(L), so the joint")
         print(f"    bound is {B['gt_overpay']:.2f}x tighter -- Bonferroni over-pays there.")
@@ -356,8 +355,15 @@ def main() -> None:
     print()
     print(f"[ran {args.seeds} seeds x {args.rounds} rounds per world in {dt:.1f}s]")
 
-    # machine-readable line for downstream sanity-checks
-    print("\nMEASURED_JSON " + _json_line(A, B, args, cfg_kwargs))
+    # serialized summary for downstream checks
+    measured = _json_line(A, B, args, cfg_kwargs)
+    print("\nMEASURED_JSON " + measured)
+    if args.json:
+        out = args.json if args.json.is_absolute() else Path(__file__).resolve().parents[2] / args.json
+        out.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        out.write_text(json.dumps(json.loads(measured), indent=2) + "\n", encoding="utf-8")
+        print(f"correlated-fleet scorecard -> {out}")
 
 
 def _json_line(A, B, args, cfg) -> str:

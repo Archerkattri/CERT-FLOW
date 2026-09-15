@@ -24,9 +24,23 @@ from certflow.conformal import (
     residual_drift_score,
     weighted_group_quantile,
 )
-from certflow.fastgraph import FastDStarLite, FlatGraph
+from certflow.fastgraph import FastDijkstraSearch, FastDStarLite, FlatGraph
+from certflow.graphcore import dijkstra
 from certflow.sensing import baseline_select, near_optimal_alternatives, path_edges, select_observation
 from certflow.types import Certificate, Edge, EdgeBelief, Node, World
+from certflow.upgrades import (
+    ActiveSensingPolicy,
+    DecisionRiskController,
+    EvidenceConditionalCalibrator,
+    RegimeRecoveryManager,
+    SelectionConditionalCalibrator,
+    SelectionLedger,
+    SequentialRecoveryMonitor,
+    SensingAction,
+    TrajectoryConformalCalibrator,
+    TrajectoryTube,
+    evidence_features,
+)
 
 # Finite upper-cost cap for unbounded edges. An UNOBSERVED edge (or warm-up
 # u-cost at q=inf) has no coverage theorem pricing its upper bound, so it is
@@ -35,6 +49,35 @@ from certflow.types import Certificate, Edge, EdgeBelief, Node, World
 # path cost (so capped edges are never chosen unless unavoidable) yet stay well
 # below float overflow when summed over a path.
 _UB_CAP = 1e9
+
+
+def _grid_heuristic(flat: FlatGraph, graph: dict[Node, dict[Node, float]],
+                    goal: Node, cost_floor: float):
+    """Return an admissible grid lower bound, or ``None`` for generic graphs.
+
+    The bound is enabled only for four-neighbour integer-coordinate graphs.
+    Every planner edge costs at least ``cost_floor``, so Manhattan distance
+    times that floor is consistent for both optimistic and conservative metric
+    graphs.  Arbitrary road/task graphs retain the zero-heuristic kernel.
+    """
+    if not isinstance(goal, tuple) or len(goal) != 2:
+        return None
+    if any(
+        not isinstance(n, tuple) or len(n) != 2
+        or not all(isinstance(x, int) for x in n)
+        for n in flat.nodes
+    ):
+        return None
+    for u, nbrs in graph.items():
+        for v in nbrs:
+            if sum(abs(int(a) - int(b)) for a, b in zip(u, v)) != 1:
+                return None
+    import numpy as _np
+    return _np.asarray(
+        [cost_floor * (abs(n[0] - goal[0]) + abs(n[1] - goal[1]))
+         for n in flat.nodes],
+        dtype=_np.float64,
+    )
 
 
 @dataclass
@@ -66,6 +109,16 @@ class PlannerConfig:
     use_kappa: bool = False
     kappa_decay: float = 0.95
     kappa_slack_frac: float = 0.5
+
+    # Add the current point-estimate shortest path to the certified candidate
+    # set and execute it only inside the existing kappa corridor.  Its
+    # conservative upper cost remains part of the certificate UB.
+    mean_path_execution: bool = False
+
+    # Search backend. ``dstar`` preserves the incremental default; ``dijkstra``
+    # uses exact fresh flat queries; ``auto`` selects the latter only for large
+    # verified grid topologies where queue repair is empirically slower.
+    search_backend: str = "dstar"
 
     # Sensing policy: "cert" (gap-shrink VOI + backstop, the contribution),
     # or Tier-2 baselines: "random", "max_age" (global freshness round-robin),
@@ -105,6 +158,15 @@ class PlannerConfig:
     # keeps its per-edge construction. Tightens the gap and the T2' floor.
     sum_aware_ub: bool = False
 
+    # CIA upper certificate: use a path-sum conformal UB for the fresh,
+    # selected incumbent. It spends a separate alpha budget from the LB
+    # (default half/half) and falls back to the ordinary UB when unsupported.
+    # This is the composition-safe alternative to independently trusting an
+    # LB and a path-sum UB at the same nominal alpha. If both CIA and
+    # sum-aware UB are enabled, CIA takes precedence for the incumbent.
+    cia_ub: bool = False
+    cia_ub_alpha_fraction: float = 0.5
+
     # Alpha annealing: report the best currently-supportable claim instead of
     # INVALID during warm-up. The effective sample size m floors the per-edge
     # level at 1/(m+1); the path level anneals from coarse to the target as
@@ -125,6 +187,14 @@ class PlannerConfig:
     adaptive_rate: bool = False
     max_sense_per_round: int = 4
     prewiden_slack_frac: float = 0.25
+
+    # Parallel calibration warm-up: before a finite conformal quantile exists,
+    # observe distinct edges in a round so long paths do not spend one whole
+    # day merely filling the path-level support requirement.  The schedule is
+    # deterministic and alternates mapping with repeat observations; it never
+    # repeats an edge at the same timestamp, so it does not manufacture extra
+    # independent calibration scores.  Off by default for legacy accounting.
+    warmup_sense_per_round: int = 1
 
     # Objective-matched sensing: when T2' says epsilon is unattainable at the
     # current rate, certificate-gap sensing buys nothing — spend observations
@@ -198,6 +268,15 @@ class PlannerConfig:
     rho_online_quantile: float = 0.9
     rho_online_min_samples: int = 10
 
+    # Evidence-conditioned edge pricing (Varun/PASC follow-up): route
+    # calibration by the age of the evidence being priced. A path uses the
+    # maximum supported within-bin quantile across its edges; if any path bin
+    # is immature, pricing falls back to the pooled quantile for the whole
+    # path. This is opt-in because the conditional claim requires the stated
+    # within-bin exchangeability assumption and enough support per bin.
+    age_stratify: bool = False
+    age_bins: tuple = (1.0, 3.0, 6.0, 12.0, 24.0, 48.0)
+
     # Lazy pre-widening (T3 locality): cache edge metrics at age + B*delta so
     # they stay valid (conservatively wide) for B rounds and D* Lite repair
     # touches ~|E|/B edges per round instead of all of them. Soundness:
@@ -239,7 +318,9 @@ class PlannerConfig:
     # path_calibration="bonferroni" (default) is the per-edge Bonferroni UB.
     # "cia" is the experimental group-sum path calibration exposed via
     # CertPlanner.cia_path_certificate(); it does NOT change round()'s default
-    # certificate. rho_w for the CIA drift retrofit is taken from cfg.rho_w.
+    # certificate. Set cia_ub=True to wire a composition-safe CIA UB into
+    # round() with an explicit split alpha budget. rho_w for the CIA drift
+    # retrofit is taken from cfg.rho_w.
     #
     # "pasc" (experimental, live-wired 2026): _q() prices edges with the PASC
     # JOINT per-edge radius instead of the per-edge Bonferroni quantile. The
@@ -274,6 +355,12 @@ class PlannerConfig:
     sr_threshold: float = 100.0      # Shiryaev-Roberts ARL threshold
     watch_window: int = 50           # recent-window size for the drift score
 
+    # All-pairs snapshot preflight. The snapshot path is an optimization only;
+    # exceeding this cap raises a named resource diagnostic before n*n tables
+    # are allocated. Callers can choose a larger explicit cap or use the normal
+    # bounded online/ALT path; no over-budget snapshot is certified.
+    snapshot_max_bytes: int = 512 * 1024 * 1024
+
     # --- Test-then-tighten license (ShrinkLicense) ----------------------------
     # shrink_license=True maintains, per shrink factor k in shrink_grid, an
     # anytime-valid upper confidence sequence on the OBSERVED per-edge violation
@@ -291,6 +378,27 @@ class PlannerConfig:
     shrink_n_min: int = 50
     shrink_alpha_target: float | None = None  # None -> use alpha_prime
 
+    # --- CERT-FLOW v3 upgrade layer ------------------------------------------
+    # These switches are deliberately opt-in: the legacy certificate stream
+    # remains byte-identical when they are all false.
+    selection_conditional: bool = False
+    selection_audit_min: int = 10
+    evidence_model: bool = False
+    evidence_model_min_calibration: int = 20
+    decision_risk_target: float | None = None
+    decision_risk_delta: float = 0.05
+    trajectory_tubes: bool = False
+    trajectory_min_calibration: int = 10
+    active_sensing: bool = False
+    active_sensing_exploration: float = 0.5
+    active_sensing_min_improvement: float = 0.25
+    regime_recovery: bool = False
+    recovery_formal: bool = False
+    recovery_alarm_delta: float = 0.01
+    recovery_samples: int = 5
+    recovery_evidence_threshold: float = 4.0
+    recovery_betting_epsilons: tuple | None = None
+
 
 def recommended_config(**overrides) -> "PlannerConfig":
     """The best-known configuration from the full ablation/benchmark program:
@@ -301,10 +409,25 @@ def recommended_config(**overrides) -> "PlannerConfig":
     already the default. decision_uniform stays a claim-semantics choice."""
     base = dict(
         rho_mode="online",
+        # Median online-rate pricing is the robust point on the traffic
+        # crossover: the 0.9 tail overreacts to sensor noise on PEMS-BAY,
+        # while conformal residuals still absorb the unmodeled remainder.
+        rho_online_quantile=0.5,
         hybrid_sensing=True,
         use_kappa=True,
         adaptive_rate=True,
         sum_aware_ub=True,
+        # Long paths can consume the weighted support faster than a small
+        # warm-up replenishes it.  A 12-edge burst reaches stable support
+        # earlier than 8/8 on the 60x60 stress case, reducing both unsupported
+        # rounds and total long-run repair time.
+        warmup_sense_per_round=12,
+        max_sense_per_round=12,
+        search_backend="auto",
+        # Small safety cushion for finite-sample and measurement-noise tail
+        # effects.  It costs only a few percent of the conformal radius while
+        # retaining the large sharpness gain of the sum-aware bound.
+        latent_margin=1.05,
     )
     base.update(overrides)
     return PlannerConfig(**base)
@@ -366,6 +489,50 @@ class CertPlanner:
             bin_edges=tuple(b * config.delta for b in config.predictor_bins),
             rho_w=config.rho_w, eps_tv=config.eps_tv,
         )
+        self.evidence_binned = AgeBinnedScorer(
+            bin_edges=tuple(b * config.delta for b in config.age_bins),
+            rho_w=config.rho_w, eps_tv=config.eps_tv,
+        )
+        # v3 upgrade state.  None of these objects affects the legacy
+        # certificate unless its corresponding config flag is enabled.
+        self.selection_ledger = SelectionLedger()
+        self.selection_calibrator = SelectionConditionalCalibrator(
+            min_audit=config.selection_audit_min
+        )
+        self.evidence_calibrator = EvidenceConditionalCalibrator(
+            min_calibration=config.evidence_model_min_calibration
+        )
+        self.decision_risk = DecisionRiskController(delta=config.decision_risk_delta)
+        self.trajectory_calibrator = TrajectoryConformalCalibrator(
+            min_calibration=config.trajectory_min_calibration
+        )
+        self.active_sensing = ActiveSensingPolicy(
+            exploration=config.active_sensing_exploration
+        )
+        self.regime = RegimeRecoveryManager(
+            alarm_delta=config.recovery_alarm_delta,
+            recovery_samples=config.recovery_samples,
+            evidence_threshold=config.recovery_evidence_threshold,
+        )
+        self.formal_regime = SequentialRecoveryMonitor(
+            alarm_threshold=1.0 / max(config.recovery_alarm_delta, 1e-6),
+            recovery_samples=config.recovery_samples,
+            betting_epsilon=config.watch_epsilon,
+            betting_epsilons=config.recovery_betting_epsilons,
+        )
+        self._selection_audit_scores: list[float] = []
+        self._selection_audit_key: tuple[Node, ...] | None = None
+        self._last_selection_event = None
+        # Automatic evidence calibration uses a chronological train/calibration
+        # split.  It never prices with a model fitted on the same residuals
+        # that calibrate its normalized radius.  The explicit
+        # fit_evidence_model() API remains available for externally supplied
+        # held-out data and marks this state as manually fitted.
+        self._evidence_train_features: list[list[float]] = []
+        self._evidence_train_residuals: list[float] = []
+        self._evidence_cal_features: list[list[float]] = []
+        self._evidence_cal_residuals: list[float] = []
+        self._evidence_auto_fitted = False
         self.pred_used_rounds = 0  # diagnostic: edges priced by the predictor
         self._edge_alpha_extra: dict[Edge, float] = {}  # per-bin annealing charge
         self.aci = ACITracker(
@@ -397,8 +564,10 @@ class CertPlanner:
         self.sense_spend = 0.0
         self._round_idx = 0
         self._obs_count: dict[Edge, int] = {}  # real observations per edge
-        self._rate_samples: list[float] = []    # online rho: |dc|/age samples
+        self._rate_samples: list[float] = []    # pooled online-rate fallback
+        self._rate_samples_by_edge: dict[Edge, list[float]] = {}
         self._rho_online = 1e-9
+        self._rho_dirty_edges: set[Edge] = set()
         self._last_gap = math.inf               # gap-stall feedback for k
         self._stall = 0
         self._churn_seen: dict[Edge, int] = {}  # edge -> last round on P_lb
@@ -422,7 +591,9 @@ class CertPlanner:
         self._kappa: dict[Edge, float] = {}
         self._prev_incumbent: list[Node] = []
         self._incumbent_since = t0  # when the incumbent edge-set last changed
+        self._last_cia_ub_used = False
         self._rng = random.Random(0)  # baseline sensing policies only
+        self._warmup_cursor = 0
 
         nodes = set(world.graph) | {v for n in world.graph for v in world.graph[n]}
         lo, up = self._metrics(q=math.inf)  # warm-up: q=inf -> ell at floor, u at inf
@@ -432,8 +603,21 @@ class CertPlanner:
         adj_up = self._to_adj(nodes, up)
         self._flat_lo = FlatGraph(adj_lo, extra_nodes=(start, goal))
         self._flat_up = FlatGraph(adj_up, extra_nodes=(start, goal))
-        self.sp_lower = FastDStarLite(adj_lo, start, goal, flat=self._flat_lo)
-        self.sp_upper = FastDStarLite(adj_up, start, goal, flat=self._flat_up)
+        self._heuristic = _grid_heuristic(
+            self._flat_lo, adj_lo, goal, config.cost_floor
+        )
+        if config.search_backend not in {"dstar", "dijkstra", "auto"}:
+            raise ValueError("search_backend must be 'dstar', 'dijkstra', or 'auto'")
+        self._use_fresh_dijkstra = (
+            config.search_backend == "dijkstra"
+            or (
+                config.search_backend == "auto"
+                and self._heuristic is not None
+                and self._flat_lo.n >= 1600
+            )
+        )
+        self.sp_lower = self._new_search(adj_lo, self._flat_lo, start, goal)
+        self.sp_upper = self._new_search(adj_up, self._flat_up, start, goal)
         self._graph_lower_cache = adj_lo
         # fixed edge order + CSR slots for vectorized cache->flat cost sync
         # (the shared-flat constructor does NOT read costs from the adjacency,
@@ -447,6 +631,18 @@ class CertPlanner:
         self._slots_up = _np.array(
             [self._flat_up.slot_of(ix_up[u], ix_up[v]) for u, v in self._edge_order],
             dtype=_np.int64)
+        self._flat_mean = FlatGraph(
+            self._graph_lower_cache, extra_nodes=(start, goal)
+        )
+        ix_mean = self._flat_mean.index_of
+        self._slots_mean = _np.array(
+            [self._flat_mean.slot_of(ix_mean[u], ix_mean[v])
+             for u, v in self._edge_order],
+            dtype=_np.int64)
+        self._mean_search = FastDijkstraSearch(
+            self._flat_mean, start, goal
+        )
+        self._mean_flat_version = -1
         # belief arrays in edge order (vectorized full-refresh: fast_metrics)
         self._edge_idx = {e: i for i, e in enumerate(self._edge_order)}
         self._arr_chat = _np.array(
@@ -470,6 +666,45 @@ class CertPlanner:
         # mode (the array view is simply unused). ingest_observation expires both.
         self._arr_due = _np.full(len(self._edge_order), -_np.inf)
 
+    def _new_search(self, graph, flat: FlatGraph, start: Node, goal: Node):
+        if self._use_fresh_dijkstra:
+            return FastDijkstraSearch(flat, start, goal)
+        return FastDStarLite(
+            graph, start, goal, flat=flat, heuristic=self._heuristic
+        )
+
+    def _mean_path(self) -> list[Node] | None:
+        """Exact point-estimate route using the numba flat backend."""
+        if self._mean_flat_version != self._beliefs_version:
+            import numpy as _np
+            values = _np.maximum(self._arr_chat, self.cfg.cost_floor)
+            self._flat_mean.cost[self._slots_mean] = values
+            self._mean_flat_version = self._beliefs_version
+        path, _ = self._mean_search.shortest_path()
+        return path
+
+    def _mean_path_edges(self) -> list[Edge]:
+        return path_edges(self._mean_path())
+
+    def _warmup_calibration_edge(self, excluded: set[Edge]) -> Edge | None:
+        """Pick a previously observed edge in O(1) on surveyed grids.
+
+        Warm-up used to scan and age-rank the entire graph for every repeat
+        observation.  A deterministic round-robin over the fixed edge order
+        supplies the same independent-score purpose without making a 12-edge
+        burst pay twelve full-graph Python scans.
+        """
+        n = len(self._edge_order)
+        if n == 0:
+            return None
+        for offset in range(n):
+            i = (self._warmup_cursor + offset) % n
+            e = self._edge_order[i]
+            if self.beliefs[e].observed and e not in excluded:
+                self._warmup_cursor = (i + 1) % n
+                return e
+        return None
+
     def _adaptive_B(self, q_eff: float) -> int:
         """Pre-widening horizon: cap width spend at a fraction of the
         epsilon-slack when certification is in play; keep the configured
@@ -479,7 +714,9 @@ class CertPlanner:
         if not cfg.adaptive_rate or B <= 0:
             return max(B, 0)
         L_b = max(getattr(self, "_last_L", 1), 1)
-        rho_b = max((self.beliefs[e].rho for e in self.beliefs), default=0.0)
+        # rho is mirrored in the fixed edge-order array; avoid a Python
+        # generator scan over every edge on each q/metric coupling pass.
+        rho_b = float(self._arr_rho.max()) if len(self._arr_rho) else 0.0
         slack = cfg.epsilon - 2 * L_b * q_eff
         if rho_b > 0 and slack > 0 and q_eff > 0:
             b_cap = int(cfg.prewiden_slack_frac * slack
@@ -504,10 +741,12 @@ class CertPlanner:
             dtype=_np.float64, count=len(self._edge_order))
         # reuse the FlatGraphs: CSR stays built, numba kernel stays warm;
         # structure-only adjacency suffices (engines read flat.cost)
-        self.sp_lower = FastDStarLite(self._graph_lower_cache, self.start,
-                                      self.goal, flat=self._flat_lo)
-        self.sp_upper = FastDStarLite(self._graph_lower_cache, self.start,
-                                      self.goal, flat=self._flat_up)
+        self.sp_lower = self._new_search(
+            self._graph_lower_cache, self._flat_lo, self.start, self.goal
+        )
+        self.sp_upper = self._new_search(
+            self._graph_lower_cache, self._flat_up, self.start, self.goal
+        )
 
     def _rho_hat(self, e: Edge) -> float:
         if self.cfg.rho_mode == "online":
@@ -528,12 +767,38 @@ class CertPlanner:
         self._rho_sorted_at = len(self._rate_samples)
         rates = sorted(self._rate_samples)
         rho = max(rates[int(cfg.rho_online_quantile * (len(rates) - 1))], 1e-9)
-        if abs(rho - self._rho_online) > 0.05 * max(self._rho_online, 1e-9):
-            self._rho_online = rho
-            for b in self.beliefs.values():
-                b.rho = rho
-            self._arr_rho[:] = rho
-            self._cache_q = -1.0  # rho changed everywhere: full metric rebuild
+        # An upward radius change can make an existing cached metric
+        # optimistic, so it must invalidate immediately.  A downward estimate
+        # is already covered by the old (wider) cache and can take effect at
+        # the ordinary edge-expiry boundary; rebuilding the whole graph for
+        # every downward refinement was the source of the 60x60 p95 spikes.
+        changed = rho > self._rho_online * 1.05
+        self._rho_online = rho
+        # A pooled scalar is a safe cold-start fallback, but it discards the
+        # spatial heterogeneity that matters on real traffic.  Once an edge
+        # has enough independent re-observation rates, use its own robust
+        # quantile; sparse edges continue using the pooled estimate.  This is
+        # still model-free: neither branch consults world.rho_true().
+        min_local = max(3, int(cfg.rho_online_min_samples))
+        for e, b in self.beliefs.items():
+            local = self._rate_samples_by_edge.get(e, [])
+            if len(local) >= min_local:
+                ordered = sorted(local)
+                target = max(
+                    ordered[int(cfg.rho_online_quantile * (len(ordered) - 1))],
+                    1e-9,
+                )
+            else:
+                target = rho
+            if abs(target - b.rho) > 0.05 * max(b.rho, 1e-9):
+                upward = target > b.rho
+                b.rho = target
+                self._arr_rho[self._edge_idx[e]] = target
+                if upward:
+                    # The next metric refresh updates only this edge.  Keeping
+                    # a dirty set avoids rebuilding the entire graph whenever
+                    # one local rate estimate moves upward.
+                    self._rho_dirty_edges.add(e)
 
     def _to_adj(self, nodes, costs: dict[Edge, float]) -> dict[Node, dict[Node, float]]:
         adj: dict[Node, dict[Node, float]] = {n: {} for n in nodes}
@@ -566,6 +831,26 @@ class CertPlanner:
             return None
         self._edge_alpha_extra[e] = max(0.0, alpha_bin - alpha_edge)
         return max(pred, cfg.cost_floor), cfg.latent_margin * qb
+
+    def _evidence_interval(self, e: Edge, age: float) -> tuple[float, float] | None:
+        """Case-dependent interval from the opt-in learned evidence model."""
+        if not self.cfg.evidence_model or not self.evidence_calibrator.ready:
+            return None
+        alpha_edge = getattr(self, "_last_alpha_edge", self._alpha_prime_eff)
+        features = evidence_features(
+            age,
+            self.beliefs[e].rho * age,
+            getattr(self, "_last_L", 1),
+            self.scorer.effective_mass(self.t),
+            overlap=1.0,
+        )
+        radius = self.evidence_calibrator.radius(features, alpha_edge)
+        if not math.isfinite(radius):
+            return None
+        half = self.cfg.latent_margin * radius + self.beliefs[e].rho * age
+        return max(self.cfg.cost_floor, self.beliefs[e].c_hat - half), max(
+            self.cfg.cost_floor, self.beliefs[e].c_hat + half
+        )
 
     def _metrics(self, q: float) -> tuple[dict[Edge, float], dict[Edge, float]]:
         lo, up = {}, {}
@@ -603,7 +888,71 @@ class CertPlanner:
         a cached-too-large q is only conservative)."""
         cfg = self.cfg
         B = cfg.prewiden_rounds
-        if self.predictor is None:
+        if self.predictor is None and cfg.evidence_model and self.evidence_calibrator.ready:
+            # Evidence-conditioned pricing used to fall through to the
+            # dict/edge loop below, turning a width improvement into a large
+            # latency regression on METR-LA/PEMS-BAY.  The model and the
+            # normalized conformal factor are both independent of edge order,
+            # so refresh the whole metric vector with NumPy and rebuild the
+            # shared flat searches exactly as the ordinary fast path does.
+            import numpy as _np
+            # FastDStarLite is imported at module scope; keep it out of this
+            # local branch so ordinary (non-evidence) refreshes see the same
+            # symbol and do not trigger Python's local-name shadowing rule.
+
+            horizon = 0.0 if B <= 0 else self._adaptive_B(q_eff) * cfg.delta
+            ages = _np.maximum(0.0, self.t - self._arr_tobs)
+            if horizon > 0.0:
+                ages = ages + horizon
+                h = horizon * self._arr_stagger
+                dues = self.t + h
+            else:
+                dues = _np.full(len(self._edge_order), self.t)
+            features = _np.column_stack((
+                ages,
+                self._arr_rho * ages,
+                _np.full(len(ages), max(getattr(self, "_last_L", 1), 1.0)),
+                _np.full(len(ages), self.scorer.effective_mass(self.t)),
+                _np.ones(len(ages)),
+                _np.zeros(len(ages)),
+            ))
+            alpha_edge = min(
+                1.0 - 1e-9,
+                max(1e-9, getattr(self, "_last_alpha_edge", self._alpha_prime_eff)),
+            )
+            radius = self.evidence_calibrator.radius_many(features, alpha_edge)
+            # The scalar evidence path falls back to pooled pricing when the
+            # normalized quantile lacks support at a long-path alpha.  Keep
+            # that sound warm-up behavior in the vector path as well; using
+            # inf directly would turn every affected edge into _UB_CAP.
+            finite_radius = _np.isfinite(radius)
+            half = _np.where(
+                finite_radius,
+                cfg.latent_margin * radius,
+                q_eff,
+            ) + self._arr_rho * ages
+            lo_a = _np.maximum(self._arr_chat - half, cfg.cost_floor)
+            up_a = _np.minimum(self._arr_chat + half, _UB_CAP)
+            unobs = ~self._arr_obs
+            lo_a[unobs] = cfg.cost_floor
+            up_a[unobs] = _UB_CAP
+            self._cache_lo = dict(zip(self._edge_order, lo_a.tolist()))
+            self._cache_up = dict(zip(self._edge_order, up_a.tolist()))
+            self._cache_due = dict(zip(self._edge_order, dues.tolist()))
+            self._arr_due = dues
+            self._cache_q = q_eff
+            self._flat_lo.cost[self._slots_lo] = lo_a
+            self._flat_up.cost[self._slots_up] = up_a
+            self.sp_lower = self._new_search(
+                self._graph_lower_cache, self._flat_lo, self.start, self.goal
+            )
+            self.sp_upper = self._new_search(
+                self._graph_lower_cache, self._flat_up, self.start, self.goal
+            )
+            return
+        if self.predictor is None and not (
+            cfg.evidence_model and self.evidence_calibrator.ready
+        ):
             # vectorized full-refresh fast path (fast_metrics): exact mode
             # recomputes everything every round, and full rebuilds touch all
             # edges — both were a Python per-edge loop (~15ms at 14k edges)
@@ -641,14 +990,15 @@ class CertPlanner:
                 self._arr_due = dues
                 if B > 0:
                     self._cache_q = q_used
+                self._rho_dirty_edges.clear()
                 self._flat_lo.cost[self._slots_lo] = lo_a
                 self._flat_up.cost[self._slots_up] = up_a
-                self.sp_lower = FastDStarLite(
-                    self._graph_lower_cache, self.start, self.goal,
-                    flat=self._flat_lo)
-                self.sp_upper = FastDStarLite(
-                    self._graph_lower_cache, self.start, self.goal,
-                    flat=self._flat_up)
+                self.sp_lower = self._new_search(
+                    self._graph_lower_cache, self._flat_lo, self.start, self.goal
+                )
+                self.sp_upper = self._new_search(
+                    self._graph_lower_cache, self._flat_up, self.start, self.goal
+                )
                 # adjacency VALUES are consumed only by the alternatives
                 # helper, which refreshes them on demand (_graph_lower_with);
                 # the engines read costs from the flat arrays — skip the
@@ -656,6 +1006,10 @@ class CertPlanner:
                 return
             # vectorized staggered due-subset (small by construction)
             mask = self._arr_due <= self.t
+            dirty_idx = [self._edge_idx[e] for e in self._rho_dirty_edges
+                         if e in self._edge_idx]
+            if dirty_idx:
+                mask[dirty_idx] = True
             if mask.any():
                 idx = _np.nonzero(mask)[0]
                 B_eff = self._adaptive_B(q_eff)
@@ -687,6 +1041,10 @@ class CertPlanner:
                         self.sp_lower.update_edges(lo_chg)
                     if up_chg:
                         self.sp_upper.update_edges(up_chg)
+                self._rho_dirty_edges.difference_update(
+                    self._edge_order[j] for j in dirty_idx
+                    if j < len(self._edge_order)
+                )
             return
         if cfg.adaptive_rate and B > 0:
             B = self._adaptive_B(q_eff)
@@ -730,8 +1088,12 @@ class CertPlanner:
                 up_v = max(cfg.cost_floor, c_pi + h_pi)
             else:
                 self._edge_alpha_extra.pop(e, None)
-                lo_v = max(cfg.cost_floor, b.c_hat - q_used - b.rho * a_pre)
-                up_v = max(cfg.cost_floor, b.c_hat + q_used + b.rho * a_pre)
+                ei = self._evidence_interval(e, a_pre)
+                if ei is not None:
+                    lo_v, up_v = ei
+                else:
+                    lo_v = max(cfg.cost_floor, b.c_hat - q_used - b.rho * a_pre)
+                    up_v = max(cfg.cost_floor, b.c_hat + q_used + b.rho * a_pre)
             if lo_v != self._cache_lo.get(e):
                 lo_chg[e] = self._cache_lo[e] = lo_v
             if up_v != self._cache_up.get(e):
@@ -758,10 +1120,36 @@ class CertPlanner:
             return self.cfg.alpha_prime / max(self.cfg.max_decisions, 1)
         return self.cfg.alpha_prime
 
-    def _q(self, path_len: int) -> float:
-        alpha_path = (
-            self.aci.working_alpha() if self.cfg.use_aci else self._alpha_prime_eff
-        )
+    def _cia_ub_alpha(self) -> float:
+        """Miscoverage budget reserved for the optional CIA upper bound."""
+        fraction = self.cfg.cia_ub_alpha_fraction
+        if not 0.0 < fraction < 1.0:
+            raise ValueError("cia_ub_alpha_fraction must be in (0, 1)")
+        return self._alpha_prime_eff * fraction
+
+    def _pricing_alpha(self) -> float:
+        """Alpha used by live conformal pricing.
+
+        Decision-uniform mode spends a frozen share of ``alpha_prime`` per
+        decision.  ACI remains available for ordinary marginal pricing, but it
+        must not override that spent share in any decision-uniform path.
+        """
+        if self.cfg.decision_uniform:
+            alpha = self._alpha_prime_eff
+        else:
+            alpha = self.aci.working_alpha() if self.cfg.use_aci else self.cfg.alpha_prime
+        if self.cfg.cia_ub:
+            fraction = self.cfg.cia_ub_alpha_fraction
+            if not 0.0 < fraction < 1.0:
+                raise ValueError("cia_ub_alpha_fraction must be in (0, 1)")
+            # Keep the LB + CIA-UB budgets within the configured claim even
+            # when ACI has adapted above its target.
+            alpha = min(alpha, self._alpha_prime_eff)
+            alpha *= 1.0 - fraction
+        return alpha
+
+    def _q(self, path_len: int, path: list[Node] | None = None) -> float:
+        alpha_path = self._pricing_alpha()
         path_len = max(path_len, 1)
         if self.cfg.strict_lb_alpha:
             # GAP-A: cover the unknown optimum's edges too — divide by the
@@ -814,7 +1202,22 @@ class CertPlanner:
                 alpha_edge, self.t, eps=self.cfg.eps_lp, rho=self.cfg.rho_lp)
         alpha_edge = path_alpha_edge(alpha_path, path_len)
         self._last_alpha_edge = alpha_edge
-        return self.scorer.quantile(alpha_edge, self.t)
+        q = self.scorer.quantile(alpha_edge, self.t)
+        if self.cfg.age_stratify and path is not None:
+            edges = path_edges(path)
+            if edges:
+                age_quantiles = [
+                    self.evidence_binned.quantile(
+                        alpha_edge, self.t, self.beliefs[e].age(self.t)
+                    )
+                    for e in edges
+                ]
+                # A conditional path price is only useful when every edge's
+                # evidence stratum is supported. Otherwise retain the pooled
+                # quantile rather than mixing conditional and pooled claims.
+                if all(math.isfinite(v) for v in age_quantiles):
+                    q = max(age_quantiles)
+        return q
 
     def _pasc_radius(self, path_len: int, alpha_path: float) -> float:
         """PASC joint per-edge radius for a path of ``path_len`` edges at level
@@ -924,17 +1327,43 @@ class CertPlanner:
                 shrunk_ub - shrunk_lb if shrunk_lb == shrunk_lb else float("nan")
             ),
         )
+        out.update(
+            v3_regime=self.regime.diagnostics(),
+            v3_formal_regime=self.formal_regime.diagnostics(),
+            v3_active_sensing=self.active_sensing.stats(),
+            v3_selection_events=len(self.selection_ledger.events),
+            v3_selection_digest=self.selection_ledger.digest,
+            v3_evidence_model_ready=self.evidence_calibrator.ready,
+            v3_evidence_auto_train=len(self._evidence_train_residuals),
+            v3_evidence_auto_calibration=len(self._evidence_cal_residuals),
+            v3_evidence_auto_fitted=self._evidence_auto_fitted,
+            v3_trajectory_calibrator_ready=self.trajectory_calibrator.ready,
+            v3_trajectory_tube_valid=(
+                self._last_trajectory_tube.valid
+                if getattr(self, "_last_trajectory_tube", None) is not None
+                else False
+            ),
+        )
         return out
 
     def round(self) -> tuple[Certificate, Edge | None]:
         """One replanning round. Returns the certificate and the sensed edge."""
         cfg = self.cfg
+        self._last_cia_ub_used = False
 
         # Step 1-2: iterate q <-> path-length coupling once (L feeds Bonferroni).
         # Start from last known L or a Dijkstra-free guess of 1.
         self._update_online_rho()
         L_guess = getattr(self, "_last_L", 1)
+        # Drift-adjusted scores can be negative when the A1 allowance exceeds
+        # the observed residual.  They are valid calibration scores, but a
+        # negative radius would invert an interval and can create non-positive
+        # search costs (and negative cycles in the oracle).  A zero radius is
+        # the sound projection because |residual| <= q + rho*age is implied by
+        # |residual| <= max(q, 0) + rho*age.
         q = self._q(L_guess)
+        if math.isfinite(q):
+            q = max(0.0, q)
         q_eff = (q if math.isfinite(q) else 0.0) * cfg.latent_margin
         # warm-up: intervals exist but the certificate is INVALID via confidence
         self._refresh_metrics(q_eff)
@@ -943,8 +1372,12 @@ class CertPlanner:
         p_lb, lb = self.sp_lower.shortest_path()
         lb_edges = path_edges(p_lb)
         L = max(len(lb_edges), 1)
-        if L != L_guess:  # one refinement pass with the right Bonferroni level
-            q = self._q(L)
+        if L != L_guess or cfg.age_stratify:
+            # Refine once with the right Bonferroni level. In age-stratified
+            # mode the path is also the evidence-overlap proxy.
+            q = self._q(L, p_lb if cfg.age_stratify else None)
+            if math.isfinite(q):
+                q = max(0.0, q)
             q_eff = (q if math.isfinite(q) else 0.0) * cfg.latent_margin
             self._refresh_metrics(q_eff)
             p_lb, lb = self.sp_lower.shortest_path()
@@ -977,6 +1410,15 @@ class CertPlanner:
         p_ub, _ = self.sp_upper.shortest_path()
         ub_edges = path_edges(p_ub) if p_ub is not None else []
         ub_candidates = []
+        mean_path = None
+        mean_path_cost = math.inf
+        if cfg.mean_path_execution:
+            mean_path = self._mean_path()
+            if mean_path is not None:
+                mean_edges = path_edges(mean_path)
+                if mean_edges and all(e in up for e in mean_edges):
+                    mean_path_cost = sum(up[e] for e in mean_edges)
+                    ub_candidates.append((mean_path_cost, mean_path))
         if p_lb is not None:
             ub_candidates.append((sum(up[e] for e in lb_edges), p_lb))
         if p_ub is not None:
@@ -995,7 +1437,7 @@ class CertPlanner:
         if not ub_candidates:
             ub, incumbent = math.inf, []
         else:
-            if cfg.sum_aware_ub and math.isfinite(q) and prev is not None:
+            if (cfg.sum_aware_ub or cfg.cia_ub) and math.isfinite(q) and prev is not None:
                 # T4: tighter UB on the standing incumbent ONLY, gated on
                 # freshness — every edge re-observed since this path became
                 # the incumbent. Post-selection observations are independent
@@ -1007,18 +1449,32 @@ class CertPlanner:
                     self.beliefs[e].t_obs >= self._incumbent_since for e in pe
                 )
                 if fresh:
-                    alpha_path = (
-                        self.aci.working_alpha() if cfg.use_aci else cfg.alpha_prime
-                    )
-                    m = self.scorer.block_quantile(alpha_path, self.t, len(pe))
-                    if math.isfinite(m):
-                        sum_aware_L = len(pe)
-                        c_sum = (
-                            sum(self.beliefs[e].c_hat for e in pe)
-                            + cfg.latent_margin * m
-                            + sum(self.beliefs[e].rho * self.beliefs[e].age(self.t)
-                                  for e in pe)
+                    if cfg.cia_ub:
+                        # CIA calibrates the selected path sum at its own
+                        # alpha budget. The LB budget is already reduced in
+                        # _pricing_alpha(), so the two events compose by a
+                        # union bound at the configured total alpha.
+                        cia = self.cia_path_certificate(
+                            prev, alpha=self._cia_ub_alpha()
                         )
+                        c_sum = cia.ub if cia is not None else math.inf
+                        if cia is not None:
+                            sum_aware_L = len(pe)
+                            self._last_cia_ub_used = True
+                    else:
+                        alpha_path = self._pricing_alpha()
+                        m = self.scorer.block_quantile(alpha_path, self.t, len(pe))
+                        if math.isfinite(m):
+                            sum_aware_L = len(pe)
+                            c_sum = (
+                                sum(self.beliefs[e].c_hat for e in pe)
+                                + cfg.latent_margin * m
+                                + sum(self.beliefs[e].rho * self.beliefs[e].age(self.t)
+                                      for e in pe)
+                            )
+                        else:
+                            c_sum = math.inf
+                    if math.isfinite(c_sum):
                         ub_candidates = [
                             (min(c, c_sum), p) if p is prev else (c, p)
                             for c, p in ub_candidates
@@ -1027,8 +1483,14 @@ class CertPlanner:
             ub = min(c for c, _ in ub_candidates)
             if cfg.use_kappa:
                 slack = cfg.kappa_slack_frac * cfg.epsilon
-                eligible = [p for c, p in ub_candidates if c <= ub + slack]
-                incumbent = max(eligible, key=self._kappa_score)
+                if mean_path is not None and mean_path_cost <= ub + slack:
+                    # This is a certificate candidate, not an uncertified
+                    # shortcut: its upper cost was included before UB was
+                    # minimized, and corridor membership bounds execution.
+                    incumbent = mean_path
+                else:
+                    eligible = [p for c, p in ub_candidates if c <= ub + slack]
+                    incumbent = max(eligible, key=self._kappa_score)
             else:
                 incumbent = min(ub_candidates, key=lambda x: x[0])[1]
         incumbent_edges = path_edges(incumbent)
@@ -1041,6 +1503,20 @@ class CertPlanner:
         if set(incumbent_edges) != set(path_edges(self._prev_incumbent)):
             self._incumbent_since = self.t  # freshness gate resets (T4)
         self._prev_incumbent = list(incumbent) if incumbent else []
+        if cfg.selection_conditional and incumbent:
+            # Store the complete candidate set, not just the winner.  The
+            # post-selection audit API can then condition on the exact choice
+            # made by the planner instead of pretending it was a random path.
+            candidate_keys = [tuple(p) for _, p in ub_candidates if p]
+            selected_key = tuple(incumbent)
+            self._last_selection_event = self.selection_ledger.record(
+                selected=selected_key,
+                candidates=candidate_keys,
+                context=(float(L), float(self.scorer.effective_mass(self.t))),
+            )
+            if self._selection_audit_key != selected_key:
+                self._selection_audit_scores = []
+                self._selection_audit_key = selected_key
 
         # Churn set (T7): edges recently on the optimistic path; the floor
         # and the sensing rotation must cover this set, not just today's path
@@ -1098,6 +1574,18 @@ class CertPlanner:
             epsilon_attainable=attainable,
             epsilon_floor=eps_floor,
         )
+        if cfg.regime_recovery and not self._recovery_monitor().certificate_allowed:
+            # Recovery is a hard safety gate, not merely a diagnostic.  Old
+            # calibration is intentionally unavailable until fresh evidence
+            # returns the manager to STABLE.
+            cert.confidence = 0.0
+        self._last_trajectory_tube = None
+        if cfg.trajectory_tubes and incumbent:
+            centers = [self.beliefs[e].c_hat for e in incumbent_edges]
+            self._last_trajectory_tube = self.trajectory_tube(
+                centers,
+                calibrate=self.trajectory_calibrator.ready,
+            )
 
         # Step 5-6: sense unless certified; certified rounds still perform
         # maintenance sensing (projected-expiry + calibration-freshness floor),
@@ -1120,6 +1608,15 @@ class CertPlanner:
         # Adaptive rate (T2'): choose k so the sustainable floor
         # 2*L*q + rho*Delta*L*(L-1)/k meets epsilon when possible.
         n_sense = 1
+        if (
+            not math.isfinite(q)
+            and not certified
+            and cfg.warmup_sense_per_round > 1
+        ):
+            n_sense = min(
+                max(1, int(cfg.warmup_sense_per_round)),
+                max(1, int(cfg.max_sense_per_round)),
+            )
         if (
             cfg.adaptive_rate
             and math.isfinite(q)
@@ -1165,29 +1662,39 @@ class CertPlanner:
             elif (not certified or maintain) and p_lb is not None and sense_edges:
                 if not math.isfinite(q):
                     # Warm-up: alternate MAPPING (round-robin the optimistic
-                    # path) with CALIBRATION (re-observe the oldest already-
+                    # path) with CALIBRATION (re-observe a rotating already-
                     # observed edge — only repeat observations form scores).
                     # Without the alternation, unknown-terrain warm-up chases
                     # the churning P_lb onto first-touch edges and the buffer
                     # starves (measured: 26 scores from 120 observations).
-                    seen = [
-                        e for e, b in self.beliefs.items() if b.observed
-                    ]
-                    if (self._round_idx + i) % 2 == 1 and seen:
-                        pick = max(seen, key=lambda e: self.beliefs[e].age(self.t))
+                    excluded = set(sensed_list)
+                    map_candidates = [e for e in sense_edges if e not in excluded]
+                    if (self._round_idx + i) % 2 == 1:
+                        pick = self._warmup_calibration_edge(excluded)
                     else:
-                        pick = sense_edges[(self._round_idx + i) % len(sense_edges)]
-                elif (cfg.hybrid_sensing and not attainable) or (
+                        if map_candidates:
+                            pick = map_candidates[(self._round_idx + i) % len(map_candidates)]
+                        else:
+                            pick = self._warmup_calibration_edge(excluded)
+                elif cfg.hybrid_sensing or (
                         cfg.refine_after_certify and certified):
-                    # objective-matched: epsilon unattainable -> VOI on the
-                    # expected-best route (departure quality is the objective)
-                    if alt is None:  # latch the mean graph once per round
-                        self._mean_graph_round = self._mean_graph()
-                        alt = set()
-                    mean_graph = self._mean_graph_round
-                    pick = baseline_select(
-                        "voi", self.beliefs, self.t, self._rng,
-                        mean_graph=mean_graph, start=self.start, goal=self.goal,
+                    # Objective-matched portfolio: VOI on the expected-best
+                    # route is useful even when the epsilon floor is formally
+                    # attainable.  The certificate remains sound because the
+                    # normal path-age/backstop accounting still prices every
+                    # certifying edge; this only chooses additional sensing
+                    # from the route-utility side of the portfolio.
+                    # Recompute after each observation. A latched VOI route can
+                    # become stale inside a sensing burst; the external VOI
+                    # comparator reacts to updated point estimates, so a fair
+                    # certificate-aware portfolio must retain that response.
+                    voi_edges = [
+                        e for e in self._mean_path_edges() if e in self.beliefs
+                    ]
+                    candidates = voi_edges or list(self.beliefs)
+                    pick = max(
+                        candidates,
+                        key=lambda e: self.beliefs[e].rho * self.beliefs[e].age(self.t),
                     )
                 else:
                     if cfg.adaptive_rate:
@@ -1221,6 +1728,32 @@ class CertPlanner:
                         )
             if pick is None:
                 break
+            if cfg.active_sensing:
+                # Formal active sensing layer: the legacy route-critical choice
+                # supplies priors, while the UCB policy learns realized gain
+                # per unit sensing cost.  Keep the learner inside the
+                # route-critical sensing set: allowing UB alternatives and
+                # unrelated candidate edges to replace the certified choice
+                # made active sensing degrade route regret in the first v3
+                # full run.
+                candidates = []
+                for edge in dict.fromkeys(list(sense_edges) + ([pick] if pick is not None else [])):
+                    b = self.beliefs[edge]
+                    gain = 1e6 if not b.observed else 2.0 * b.rho * b.age(self.t)
+                    candidates.append(
+                        SensingAction(edge, gain, b.sense_cost, (float(L),))
+                    )
+                chosen = self.active_sensing.select(candidates)
+                baseline = next((a for a in candidates if a.key == pick), None)
+                if (
+                    chosen is not None
+                    and baseline is not None
+                    and chosen.key != pick
+                    and self.active_sensing.score(chosen)
+                    > self.active_sensing.score(baseline)
+                    * (1.0 + max(cfg.active_sensing_min_improvement, 0.0))
+                ):
+                    pick = chosen.key
             # Observe, score, ACI feedback, belief update. The err event uses
             # the UNCLIPPED interval (T1a observable semantics): the cost-floor
             # clip is justified by latent positivity (c > 0) and is sound
@@ -1237,13 +1770,28 @@ class CertPlanner:
                 self.aci.update(err=not covered)
             self.sense_spend += self.beliefs[pick].sense_cost
             sensed_list.append(pick)
+            if cfg.active_sensing:
+                # This is a conservative immediate proxy.  A downstream
+                # caller can update the policy with a recomputed gap when it
+                # has an expensive post-observation replanning step.
+                realized_gain = max(0.0, (up_obs - lo_obs) -
+                                    2.0 * self.beliefs[pick].rho *
+                                    self.beliefs[pick].age(self.t))
+                self.active_sensing.update(pick, realized_gain)
         self._round_idx += 1
         sensed = sensed_list[0] if sensed_list else None
 
         self.t += cfg.delta
+        # An alarm can be triggered by the final observation in this round.
+        # Re-check after sensing so the caller never receives a still-valid
+        # certificate from the same round that revoked its calibration.
+        if cfg.regime_recovery and not self._recovery_monitor().certificate_allowed:
+            cert.confidence = 0.0
         return cert, sensed
 
-    def cia_path_certificate(self, path: list[Node] | None = None):
+    def cia_path_certificate(
+        self, path: list[Node] | None = None, alpha: float | None = None
+    ):
         """Experimental CIA group-sum certificate for a fixed path (config
         flag path_calibration="cia"; does NOT alter round()'s default).
 
@@ -1272,7 +1820,9 @@ class CertPlanner:
         if n_blocks == 0:
             return None
         alpha_path = (
-            self.aci.working_alpha() if self.cfg.use_aci else self._alpha_prime_eff
+            self._cia_ub_alpha()
+            if alpha is None and self.cfg.cia_ub
+            else self._pricing_alpha() if alpha is None else alpha
         )
         scores, weights = [], []
         for b in range(n_blocks):
@@ -1320,9 +1870,7 @@ class CertPlanner:
         n_blocks = len(samples) // L
         if n_blocks == 0:
             return None
-        alpha_path = (
-            self.aci.working_alpha() if self.cfg.use_aci else self._alpha_prime_eff
-        )
+        alpha_path = self._pricing_alpha()
         scores, weights = [], []
         for b in range(n_blocks):
             block = samples[b * L : (b + 1) * L]
@@ -1332,6 +1880,199 @@ class CertPlanner:
             )
         Q = weighted_group_quantile(scores, weights, alpha_path)
         return Q if math.isfinite(Q) else None
+
+    # ------------------------------------------------------------------ v3 API
+    def selection_certificate(
+        self,
+        path: list[Node] | None = None,
+        audit_residuals: list[float] | None = None,
+        point: float | None = None,
+        alpha: float | None = None,
+    ):
+        """Certify the selected route with an independent post-selection audit.
+
+        ``audit_residuals`` are path-level residuals collected after the route
+        was selected (or from a held-out audit stream).  Reusing the ordinary
+        adaptive edge buffer here is intentionally not supported: that is the
+        winner's-curse failure mode this API is designed to expose.
+        """
+        p = path if path is not None else self._prev_incumbent
+        if not p:
+            return None
+        selected = tuple(p)
+        event = self._last_selection_event
+        if event is None or event.selected != selected:
+            # A caller can certify a manually supplied selected path, but the
+            # returned digest explicitly records that no planner event exists.
+            ledger = None
+        else:
+            ledger = self.selection_ledger
+        if point is None:
+            point = sum(self.beliefs[e].c_hat for e in path_edges(p))
+        if audit_residuals is None:
+            audit_residuals = list(self._selection_audit_scores)
+        if alpha is None:
+            alpha = self._alpha_prime_eff
+        drift = sum(
+            self.beliefs[e].rho * self.beliefs[e].age(self.t)
+            for e in path_edges(p)
+        )
+        return self.selection_calibrator.certify(
+            selected, point, audit_residuals, alpha, ledger=ledger,
+            drift_margin=drift,
+        )
+
+    def record_selection_audit(self, residual: float, path: list[Node] | None = None) -> None:
+        """Append one independently collected residual for the selected path.
+
+        This method is the bridge for a real post-selection audit sensor.  It
+        intentionally rejects audits for a different selected path so callers
+        cannot accidentally combine evidence across selection events.
+        """
+        p = path if path is not None else self._prev_incumbent
+        key = tuple(p) if p else None
+        if key is None or self._selection_audit_key != key:
+            raise ValueError("audit path does not match the current selected path")
+        value = float(residual)
+        if not math.isfinite(value):
+            raise ValueError("residual must be finite")
+        self._selection_audit_scores.append(abs(value))
+
+    def _auto_evidence_update(self, edge: Edge, age: float, residual: float) -> None:
+        """Collect a disjoint chronological split for the evidence model.
+
+        This is intentionally conservative: automatic fitting happens once,
+        after two equal support blocks, and the fitted model is frozen for the
+        episode.  A deployment with a longer independent stream can call
+        fit_evidence_model() again at an explicit split boundary.
+        """
+        if not self.cfg.evidence_model or self._evidence_auto_fitted:
+            return
+        if not math.isfinite(residual):
+            return
+        features = evidence_features(
+            age, self.beliefs[edge].rho * age,
+            getattr(self, "_last_L", 1),
+            self.scorer.effective_mass(self.t), overlap=1.0,
+        ).tolist()
+        minimum = max(2, self.cfg.evidence_model_min_calibration)
+        # Auto-fit needs a nontrivial training/calibration split, but should
+        # remain usable in short diagnostic episodes as well as full runs.
+        minimum = min(minimum, 20)
+        if len(self._evidence_train_residuals) < minimum:
+            self._evidence_train_features.append(features)
+            self._evidence_train_residuals.append(abs(float(residual)))
+            return
+        self._evidence_cal_features.append(features)
+        self._evidence_cal_residuals.append(abs(float(residual)))
+        if len(self._evidence_cal_residuals) >= minimum:
+            self.evidence_calibrator.fit(
+                self._evidence_train_features,
+                self._evidence_train_residuals,
+                self._evidence_cal_features,
+                self._evidence_cal_residuals,
+            )
+            self._evidence_auto_fitted = True
+
+    def fit_evidence_model(
+        self,
+        train_features,
+        train_residuals,
+        calibration_features,
+        calibration_residuals,
+    ):
+        """Fit the optional learned overlap/evidence calibrator.
+
+        The caller supplies a proper training split and a disjoint calibration
+        split.  The model learns a residual scale from observables; the final
+        radius remains conformal through normalized calibration residuals.
+        """
+        result = self.evidence_calibrator.fit(
+            train_features, train_residuals,
+            calibration_features, calibration_residuals,
+        )
+        self._evidence_auto_fitted = True
+        return result
+
+    def evidence_radius(
+        self,
+        edge: Edge,
+        path_length: int | None = None,
+        overlap: float = 1.0,
+        sensing_density: float = 0.0,
+        alpha: float | None = None,
+    ) -> float:
+        """Return a case-dependent conformal radius for one edge.
+
+        This is an explicit v3 opt-in API.  It does not alter the legacy
+        planner pricing unless a caller deliberately uses this radius.
+        """
+        b = self.beliefs[edge]
+        ess = self.scorer.effective_mass(self.t)
+        features = evidence_features(
+            b.age(self.t), b.rho * b.age(self.t),
+            path_length if path_length is not None else getattr(self, "_last_L", 1),
+            ess, overlap, sensing_density,
+        )
+        return self.evidence_calibrator.radius(
+            features, self._pricing_alpha() if alpha is None else alpha
+        )
+
+    def decision_certificate(
+        self,
+        actions,
+        objectives,
+        target_risk: float | None = None,
+        alpha: float | None = None,
+    ):
+        """Select a route/action by directly controlling supplied risk losses."""
+        target = (
+            self.cfg.decision_risk_target
+            if target_risk is None else target_risk
+        )
+        if target is None:
+            raise ValueError("target_risk must be supplied or configured")
+        return self.decision_risk.select(actions, objectives, target, alpha)
+
+    def fit_trajectory_calibrator(self, predicted, observed):
+        """Fit the trajectory-level max-score calibrator on held-out episodes."""
+        return self.trajectory_calibrator.fit(predicted, observed)
+
+    def trajectory_tube(
+        self,
+        center,
+        alpha: float | None = None,
+        calibrate: bool = True,
+    ):
+        """Return a conformal trajectory tube from the v3 calibrator."""
+        level = self._alpha_prime_eff if alpha is None else alpha
+        if calibrate:
+            return self.trajectory_calibrator.tube(center, level)
+        import numpy as _np
+        c = _np.asarray(center, dtype=float)
+        p = self._prev_incumbent
+        edges = path_edges(p) if p else []
+        q = self._q(len(edges), p) if edges else math.inf
+        radii = _np.asarray([
+            q + self.beliefs[e].rho * self.beliefs[e].age(self.t)
+            for e in edges
+        ], dtype=float)
+        return TrajectoryTube(c, radii, self._alpha_prime_eff, 1.0 - level,
+                              "CERT-FLOW route edge-cost tube")
+
+    def recovery_diagnostics(self) -> dict:
+        """Return the v3 regime/recovery state and active-sensing ledger."""
+        return {
+            "regime": self.regime.diagnostics(),
+            "formal_regime": self.formal_regime.diagnostics(),
+            "active_sensing": self.active_sensing.stats(),
+            "selection_events": len(self.selection_ledger.events),
+            "selection_digest": self.selection_ledger.digest,
+        }
+
+    def _recovery_monitor(self):
+        """Return the configured operational recovery gate."""
+        return self.formal_regime if self.cfg.recovery_formal else self.regime
 
     def _mean_graph(self) -> dict[Node, dict[Node, float]]:
         """Point-estimate adjacency (max(c_hat, cost_floor)) for VOI sensing.
@@ -1374,21 +2115,41 @@ class CertPlanner:
         if b.observed and (
             not self.cfg.thinned_scores or self._obs_count[e] % 2 == 0
         ):
-            score = abs(obs - b.c_hat) - b.rho * b.age(self.t)
+            pair_age = b.age(self.t)
+            raw_residual = abs(obs - b.c_hat)
+            score = raw_residual - b.rho * pair_age
+            self._auto_evidence_update(e, pair_age, raw_residual)
             # Live validity monitor (WATCH): the weighted conformal p-value of
             # this fresh score against the CURRENT calibration buffer (before it
             # is pushed) is (super-)uniform under the weighted-exchangeability
             # null the certificate assumes. Feed it to the test martingale and
             # the Shiryaev-Roberts detector. Purely observational -- no pricing.
-            if self.cfg.watch_monitor and self.scorer._buf:
+            if self.scorer._buf:
                 w_cal = self.scorer._weights(self.t)
                 cal = [s.residual for s in self.scorer._buf]
                 p = conformal_p_value(score, cal, w_cal)
-                self.watch.update(p)
-                self.sr.update(p)
-                self._recent_scores.append(score)
-                if len(self._recent_scores) > self.cfg.watch_window:
-                    del self._recent_scores[0]
+                if self.cfg.watch_monitor:
+                    self.watch.update(p)
+                    self.sr.update(p)
+                    self._recent_scores.append(score)
+                    if len(self._recent_scores) > self.cfg.watch_window:
+                        del self._recent_scores[0]
+                if self.cfg.regime_recovery:
+                    monitor = self._recovery_monitor()
+                    previous_state = monitor.state
+                    new_state = monitor.observe_pvalue(p)
+                    if (previous_state == "stable" and new_state == "alarm"):
+                        # A detected regime break revokes old calibration.  The
+                        # manager then requires a fresh recovery sample run
+                        # before the certificate can become live again.
+                        self.scorer.clear()
+                        self._recent_scores.clear()
+            elif self.cfg.regime_recovery:
+                # During recovery the pre-alarm buffer is intentionally empty;
+                # fresh observations count as non-surprising evidence until a
+                # new buffer has formed, allowing the hard gate to reopen.
+                monitor = self._recovery_monitor()
+                monitor.observe_pvalue(1.0)
             # Test-then-tighten license (ShrinkLicense): per shrink factor k, the
             # Bernoulli outcome x_t(k) = 1{|obs - c_hat| > k * radius_t} on the
             # UNADJUSTED deviation vs the k-shrunk FULL per-edge radius
@@ -1407,11 +2168,17 @@ class CertPlanner:
                          for k in self.cfg.shrink_grid}
                     )
             self.scorer.push(score, self.t)
+            self.evidence_binned.push(score, self.t, b.age(self.t))
             self.scorer.push_signed(obs - b.c_hat, self.t)
             self.cal_rho_a_max = max(self.cal_rho_a_max, b.rho * b.age(self.t))
             age = b.age(self.t)
             if self.cfg.rho_mode == "online" and age >= self.cfg.delta:
-                self._rate_samples.append(abs(obs - b.c_hat) / age)
+                rate = abs(obs - b.c_hat) / age
+                self._rate_samples.append(rate)
+                local = self._rate_samples_by_edge.setdefault(e, [])
+                local.append(rate)
+                if len(local) > 256:
+                    del local[:-256]
                 if len(self._rate_samples) > 2000:
                     del self._rate_samples[0]
         b.c_hat = max(obs, self.cfg.cost_floor)
@@ -1513,7 +2280,9 @@ class CertPlanner:
                     [self._flat_mid.slot_of(ix[u], ix[v])
                      for u, v in self._edge_order], dtype=_np.int64)
             self._flat_mid.cost[self._slots_mid] = self._arr_chat
-            self._oracle = self._oracle or SnapshotOracle(self._flat_mid)
+            self._oracle = self._oracle or SnapshotOracle(
+                self._flat_mid, max_bytes=self.cfg.snapshot_max_bytes
+            )
             self._oracle.build(self.t)
             self._oracle_chat_snap = self._arr_chat.copy()
         self._gate_stamp = stamp
@@ -1551,6 +2320,11 @@ class CertPlanner:
         Searches are rebuilt from scratch at the new endpoints (a global
         change; scratch beats repair)."""
         self.start, self.goal = start, goal
+        self._heuristic = _grid_heuristic(
+            self._flat_lo, self._graph_lower_cache, goal, self.cfg.cost_floor
+        )
+        self._mean_search = FastDijkstraSearch(self._flat_mean, start, goal)
+        self._mean_flat_version = -1
         self._prev_incumbent = []
         self._p_sense = []
         self._incumbent_since = self.t
@@ -1561,12 +2335,14 @@ class CertPlanner:
         if self._cache_lo:
             self._rebuild_searches()
         else:  # retarget before any round: warm-up metrics, fresh engines
-            self.sp_lower = FastDStarLite(
-                self._graph_lower_cache, start, goal, flat=self._flat_lo)
-            self.sp_upper = FastDStarLite(
+            self.sp_lower = self._new_search(
+                self._graph_lower_cache, self._flat_lo, start, goal
+            )
+            self.sp_upper = self._new_search(
                 self._to_adj(set(self._graph_lower_cache),
                              {e: _UB_CAP for e in self.beliefs}),
-                start, goal, flat=self._flat_up)
+                self._flat_up, start, goal
+            )
 
     def advance_start(self, node: Node) -> None:
         """Robot moved: shift both searches' start (D* Lite km offset)."""

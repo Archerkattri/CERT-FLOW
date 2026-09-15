@@ -118,10 +118,31 @@ class ExperimentConfig:
     thinned_scores: bool = False  # disjoint-pair calibration (provable mode)
     use_aci: bool = True          # False = freeze working alpha (provable mode)
     sum_aware_ub: bool = False    # T4 block-quantile UB margin (theory.tex)
+    cia_ub: bool = False          # CIA path-sum UB with split alpha budget
+    cia_ub_alpha_fraction: float = 0.5
+    age_stratify: bool = False    # evidence-age-conditioned edge pricing
+    age_bins: tuple = (1.0, 3.0, 6.0, 12.0, 24.0, 48.0)
     hybrid_sensing: bool = False  # objective-matched sensing (VOI when eps unattainable)
+    refine_after_certify: bool = False  # continue budgeted route-utility refinement after certification
     rho_mode: str = "given"       # "online" = estimate drift from observed rates
     adaptive_rate: bool = False   # T2'-derived k observations per round
     decision_uniform: bool = False  # alpha-spending over decision instants (T6)
+    selection_conditional: bool = False
+    selection_audit_min: int = 10
+    evidence_model: bool = False
+    evidence_model_min_calibration: int = 20
+    decision_risk_target: float | None = None
+    decision_risk_delta: float = 0.05
+    trajectory_tubes: bool = False
+    trajectory_min_calibration: int = 10
+    active_sensing: bool = False
+    active_sensing_exploration: float = 0.5
+    regime_recovery: bool = False
+    recovery_formal: bool = False
+    recovery_alarm_delta: float = 0.01
+    recovery_samples: int = 5
+    recovery_evidence_threshold: float = 4.0
+    recovery_betting_epsilons: tuple | None = None
 
     # run
     n_seeds: int = 10
@@ -463,7 +484,12 @@ def _experiment_result_to_dict(result: ExperimentResult) -> dict[str, Any]:
 
 
 def _experiment_result_from_dict(d: dict[str, Any]) -> ExperimentResult:
-    config = ExperimentConfig(**d["config"])
+    config_data = dict(d["config"])
+    # JSON has no tuple type; restore tuple-valued config fields so a saved
+    # experiment has the same stable config/hash as the live experiment.
+    if isinstance(config_data.get("age_bins"), list):
+        config_data["age_bins"] = tuple(config_data["age_bins"])
+    config = ExperimentConfig(**config_data)
     episodes = [_episode_result_from_dict(e) for e in d.get("episodes", [])]
     failures = [_failure_record_from_dict(f) for f in d.get("failures", [])]
     result = ExperimentResult(

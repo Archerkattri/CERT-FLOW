@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -79,6 +80,8 @@ def main():
                     help="subgraph node cap (0 = full graph)")
     ap.add_argument("--pairs", type=int, default=1000)
     ap.add_argument("--exact", type=int, default=200)
+    ap.add_argument("--json", type=Path,
+                    help="persist the measured routing scorecard as JSON")
     args = ap.parse_args()
 
     print(f"numba: {_HAVE_NUMBA}")
@@ -226,6 +229,32 @@ def main():
     print(f"CH-pot build {orc_build_s:.1f}s | CH-pot q p50={o50:.4f}ms p95={o95:.4f}ms "
           f"| +-20% robust q p50={o2_50:.4f}ms ({omism}/{args.exact} mism)")
     print(f"FastDijkstra p50={d50:.3f}ms | published CH 0.110ms | published HL 0.00056ms")
+
+    if args.json:
+        out = args.json if args.json.is_absolute() else ROOT / args.json
+        out.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "graph": args.graph,
+            "nodes": int(g.n),
+            "arcs": int(g.indices.size),
+            "pairs": int(args.pairs),
+            "exact_pairs": int(args.exact),
+            "numba": bool(_HAVE_NUMBA),
+            "build_seconds": ch_build_s,
+            "potential_build_seconds": orc_build_s,
+            "fast_dijkstra_ms": {"p50": d50, "p95": d95},
+            "ch_cost_ms": {"p50": c50, "p95": c95},
+            "ch_path_ms": {"p50": p50, "p95": p95},
+            "potential_ms": {"p50": o50, "p95": o95},
+            "potential_perturbed_ms": {"p50": o2_50, "p95": o2_95},
+            "ch_mismatches": int(ch_mism),
+            "potential_mismatches": int(orc_mism),
+            "potential_perturbed_mismatches": int(omism),
+            "absorb_cost_ms_p50": abs50,
+            "published_ch_p50_ms": 0.110,
+        }
+        out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"routing scorecard -> {out}")
 
 
 if __name__ == "__main__":

@@ -2,13 +2,13 @@ cff-version: 1.2.0
 message: "If you use CERT-FLOW in your research, please cite it as below."
 type: software
 title: "CERT-FLOW: Certified Route Planning under Drifting Costs"
-version: 1.0.2
+version: 1.1.0
 authors:
   - family-names: Attri
     given-names: Krishi
     email: krishiattriwork@gmail.com
     orcid: https://orcid.org/0009-0005-4695-6467
-date-released: "2026-06-10"
+date-released: "2026-07-02"
 doi: 10.5281/zenodo.20631475
 url: "https://github.com/Archerkattri/CERT-FLOW"
 repository-code: "https://github.com/Archerkattri/CERT-FLOW"
@@ -31,7 +31,7 @@ abstract: >-
   instant drift exceeds tolerance.
 preferred-citation:
   type: article
-  title: "CERT: Certified Route Planning under Drifting Costs"
+  title: "CERT-FLOW: Certified Route Planning under Drifting Costs"
   authors:
     - family-names: Attri
       given-names: Krishi
@@ -39,4 +39,4 @@ preferred-citation:
   year: 2026
   doi: 10.31224/7306
   url: "https://doi.org/10.31224/7306"
-  notes: "engrXiv preprint, extended version"
+  notes: "engrXiv preprint, version 2"

@@ -1,5 +1,4 @@
-"""Spatially-correlated + heavy-tailed drift worlds for the CERT-FLOW RSS
-extended-validation cell (ADDITIONAL results, NOT part of the published paper).
+"""Spatially correlated, heavy-tailed drift worlds for validation.
 
 These worlds subclass ``certflow.drift._GridBase`` READ-ONLY (no package edits)
 to reuse the exact 4-connected grid topology, the initial log-normal cost draw,

@@ -7,7 +7,7 @@ from certflow.cert import CertPlanner, PlannerConfig
 from certflow.drift import grid_world
 from certflow.fastgraph import FlatGraph
 from certflow.graphcore import dijkstra
-from certflow.snapshot import SnapshotOracle
+from certflow.snapshot import SnapshotOracle, SnapshotResourceError, estimate_snapshot_bytes
 
 
 def planner_on(kind: str, seed: int = 2, rho: float = 0.02):
@@ -106,3 +106,44 @@ def test_snapshot_invalidate_rebuild_cycle():
     o.build(1.0)  # rebuild after invalidate
     assert o.ready and o.cost(0, 2) == 2.0
     assert o.built_at == 1.0
+
+
+def test_snapshot_memory_preflight_rejects_before_quadratic_allocation():
+    # A chain gives us a 10,000-node FlatGraph without requiring a dense input
+    # graph. The rejection happens before SnapshotOracle.build() allocates its
+    # (n, n) distance/parent tables.
+    n = 10_000
+    graph = {i: {i + 1: 1.0} for i in range(n - 1)}
+    graph[n - 1] = {}
+    o = SnapshotOracle(FlatGraph(graph), max_bytes=512 * 1024 * 1024)
+
+    assert o.estimated_bytes == estimate_snapshot_bytes(n)
+    assert o.estimated_bytes > o.max_bytes
+    with pytest.raises(SnapshotResourceError, match="snapshot resource limit") as exc:
+        o.build(0.0)
+    assert exc.value.n_nodes == n
+    assert exc.value.estimated_bytes == o.estimated_bytes
+    assert exc.value.max_bytes == o.max_bytes
+    assert not o.ready
+
+
+def test_snapshot_memory_cap_is_configurable_for_small_graph():
+    fg = FlatGraph({0: {1: 1.0}, 1: {}})
+    o = SnapshotOracle(fg, max_bytes=estimate_snapshot_bytes(fg.n))
+    o.build(0.0)
+    assert o.cost(0, 1) == 1.0
+
+
+def test_public_snapshot_query_surfaces_configured_resource_limit():
+    world = grid_world(2, 2, seed=4, kind="static", noise_scale=0.02)
+    p = CertPlanner(
+        world, (0, 0), (1, 1),
+        PlannerConfig(
+            epsilon=3.0, alpha_prime=0.2, eps_tv=1e-4,
+            snapshot_max_bytes=0,
+        ),
+    )
+    for _ in range(80):
+        p.round()
+    with pytest.raises(SnapshotResourceError, match="snapshot resource limit"):
+        p.snapshot_query((0, 0), (1, 1), tau=0.5)

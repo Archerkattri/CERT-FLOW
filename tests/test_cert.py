@@ -239,6 +239,75 @@ def test_decision_uniform_trajectory_validity():
     assert ok == n  # every episode's acted-on certificates all valid
 
 
+def test_decision_uniform_freezes_all_pricing_alpha():
+    """Uniform decision spending must apply to edge and sum-aware pricing."""
+    _, planner = make(
+        "static", decision_uniform=True, use_aci=True, sum_aware_ub=True,
+        anneal_alpha=False,
+    )
+    expected = planner.cfg.alpha_prime / planner.cfg.max_decisions
+    seen_q, seen_block = [], []
+    planner.scorer.quantile = lambda alpha, t: seen_q.append(alpha) or 0.0
+    planner.scorer.block_quantile = (
+        lambda alpha, t, block_len: seen_block.append(alpha) or 0.0
+    )
+
+    planner._q(5)
+    assert seen_q[-1] == expected / 5
+
+    planner.round()  # establish an incumbent for the sum-aware path
+    planner._incumbent_since = -1.0
+    for belief in planner.beliefs.values():
+        belief.t_obs = planner.t
+    planner.round()
+    assert seen_block
+    assert seen_block[-1] == expected
+
+
+def test_age_stratified_pricing_requires_support_for_every_path_edge():
+    """Path conditioning tightens supported bins and falls back atomically."""
+    _, planner = make("static", age_stratify=True, anneal_alpha=False)
+    path = [(0, 0), (0, 1), (0, 2)]
+    for edge in planner.beliefs:
+        planner.beliefs[edge].t_obs = planner.t
+    planner.beliefs[((0, 1), (0, 2))].t_obs = planner.t - 2.0
+    planner.scorer.quantile = lambda alpha, t: 10.0
+    planner.evidence_binned.quantile = lambda alpha, t, age: 1.0 + age
+
+    assert planner._q(2, path) == 3.0
+
+    planner.evidence_binned.quantile = (
+        lambda alpha, t, age: math.inf if age > 0.0 else 1.0
+    )
+    assert planner._q(2, path) == 10.0
+
+
+def test_cia_ub_uses_a_split_alpha_budget():
+    """CIA-UB must compose with the LB instead of reusing its alpha."""
+    from certflow.conformal import CIAResult
+
+    _, planner = make(
+        "static", cia_ub=True, use_aci=True, anneal_alpha=False,
+    )
+    expected_lb = planner.cfg.alpha_prime * (1.0 - planner.cfg.cia_ub_alpha_fraction)
+    expected_ub = planner.cfg.alpha_prime * planner.cfg.cia_ub_alpha_fraction
+    assert planner._pricing_alpha() == expected_lb
+    assert planner._cia_ub_alpha() == expected_ub
+
+    seen = []
+    planner.scorer.quantile = lambda alpha, t: 0.0
+    planner.cia_path_certificate = (
+        lambda path, alpha=None: seen.append(alpha)
+        or CIAResult(0.0, 0.0, 0.0, 0.0, 1.0 - expected_ub)
+    )
+    planner.round()  # establish an incumbent
+    planner._incumbent_since = -1.0
+    for belief in planner.beliefs.values():
+        belief.t_obs = planner.t
+    planner.round()
+    assert seen and seen[-1] == expected_ub
+
+
 def test_traversing_mars_degenerate_stopping():
     """T2' corollary (rho->0, q->0): in a noise-free static unknown world,
     CERT's epsilon-certificate stopping coincides with the deterministic

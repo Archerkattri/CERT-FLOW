@@ -351,6 +351,14 @@ def _bidir_upward(
                                 hkb[p], hkb[j] = hkb[j], hkb[p]
                                 hnb[p], hnb[j] = hnb[j], hnb[p]
                                 j = p
+    # Reset only touched entries inside the compiled kernel.  The previous
+    # Python wrapper performed these two loops after every query, which made
+    # the query latency grow with the explored frontier and obscured the CH
+    # speedup on larger subgraphs.
+    for i in range(nf):
+        df[seenf[i]] = np.inf
+    for i in range(nb):
+        db[seenb[i]] = np.inf
     return best, nf, nb
 
 
@@ -1086,11 +1094,6 @@ class ContractionHierarchy:
             self.dn_indptr, self.dn_indices, self.dn_cost,
             self._df, self._db, self._seenf, self._seenb,
         )
-        # reset touched scratch
-        for i in range(nf):
-            self._df[self._seenf[i]] = INF
-        for i in range(nb):
-            self._db[self._seenb[i]] = INF
         return float(best)
 
     def path(self, s_idx: int, g_idx: int) -> Optional[list[int]]:

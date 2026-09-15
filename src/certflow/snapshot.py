@@ -11,8 +11,11 @@ certificate tells us exactly when the oracle EXPIRES: any width exceeding
 tau invalidates the snapshot, and the planner falls back to its online
 machinery. Preprocessing-by-assumption becomes preprocessing-by-proof.
 
-Scope: all-pairs is feasible to ~10k nodes (n Dijkstras to build, O(n^2)
-memory). Larger graphs use the ALT layer (roadnet.py) under the same gate.
+Scope: all-pairs is feasible only while its configured memory budget permits
+it (n Dijkstras to build, O(n^2) memory). Larger graphs use the ALT layer
+(roadnet.py) under the same gate. The budget is checked before allocating the
+quadratic tables; callers receive an explicit resource-limit diagnostic rather
+than a partially certified or silently downgraded snapshot.
 """
 from __future__ import annotations
 
@@ -21,6 +24,37 @@ import time
 import numpy as np
 
 from certflow.fastgraph import FlatGraph, _HAVE_NUMBA
+
+
+DEFAULT_MAX_BYTES = 512 * 1024 * 1024
+
+
+class SnapshotResourceError(MemoryError):
+    """Raised before an all-pairs snapshot would exceed its memory budget."""
+
+    def __init__(self, *, n_nodes: int, estimated_bytes: int, max_bytes: int) -> None:
+        self.n_nodes = int(n_nodes)
+        self.estimated_bytes = int(estimated_bytes)
+        self.max_bytes = int(max_bytes)
+        super().__init__(
+            "snapshot resource limit: "
+            f"n_nodes={self.n_nodes}, estimated_bytes={self.estimated_bytes}, "
+            f"max_bytes={self.max_bytes}; use a bounded/ALT planner path"
+        )
+
+
+def estimate_snapshot_bytes(n_nodes: int) -> int:
+    """Estimate tables plus linear scratch space before an all-pairs build."""
+    n = int(n_nodes)
+    if n < 0:
+        raise ValueError("n_nodes must be non-negative")
+    # dist/parent tables plus dijkstra scratch. The numba heap is 4*n entries
+    # of float64 + int64; the fallback uses comparable linear arrays. This is a
+    # lower-bound estimate for Python allocator overhead, deliberately rounded
+    # conservatively upward by one linear scratch block.
+    table_bytes = n * n * (np.dtype(np.float32).itemsize + np.dtype(np.int32).itemsize)
+    scratch_bytes = n * (8 + 8 + (4 * 8) + (4 * 8))
+    return int(table_bytes + scratch_bytes)
 
 if _HAVE_NUMBA:
     import numba
@@ -84,9 +118,13 @@ class SnapshotOracle:
     """All-pairs oracle over a FlatGraph snapshot, with certificate gating
     handled by the caller (see CertPlanner.snapshot_query)."""
 
-    def __init__(self, flat: FlatGraph):
+    def __init__(self, flat: FlatGraph, *, max_bytes: int = DEFAULT_MAX_BYTES):
         self.flat = flat
         self.n = flat.n
+        self.max_bytes = int(max_bytes)
+        if self.max_bytes < 0:
+            raise ValueError("max_bytes must be non-negative")
+        self.estimated_bytes = estimate_snapshot_bytes(self.n)
         self._dist: np.ndarray | None = None     # (n, n) float32
         self._parent: np.ndarray | None = None   # (n, n) int32
         self.built_at: float | None = None
@@ -101,6 +139,15 @@ class SnapshotOracle:
         """All-pairs by n single-source runs on the current flat costs."""
         t0 = time.perf_counter()
         n = self.n
+        # This check must remain before either quadratic np.empty call. A
+        # caller may opt into a larger budget explicitly, but the default is
+        # bounded and an over-budget result is never exposed as a certificate.
+        if self.estimated_bytes > self.max_bytes:
+            raise SnapshotResourceError(
+                n_nodes=n,
+                estimated_bytes=self.estimated_bytes,
+                max_bytes=self.max_bytes,
+            )
         dist = np.empty((n, n), dtype=np.float32)
         parent = np.empty((n, n), dtype=np.int32)
         d = np.empty(n, dtype=np.float64)

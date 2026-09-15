@@ -1,6 +1,6 @@
-"""Adversarial drift PLACEMENT stress (A1 worst case) -- ADDITIONAL RSS result.
+"""Adversarial drift placement stress (A1 worst case).
 
-NOT a change to the published paper. Imports the published package READ-ONLY
+Imports the published package READ-ONLY
 (certflow/*) and lives entirely under scripts/extval/.
 
 ================================================================================
@@ -38,7 +38,7 @@ This is strictly harder than a benign random-drift control, which spreads the
 same average |dc| over random edges and random signs (no correlation with age,
 no concentration on the certificate-critical path).
 
-HONEST QUESTION: does coverage survive correlated, adversarially-placed A1
+QUESTION: does coverage survive correlated, adversarially-placed A1
 violation, and does the loss stay within the violation mass the lemma bounds?
 We instrument the MECHANISM (mean conformal q; fraction of LB-path edges clamped
 to the floor) so the answer is explained, not merely asserted.
@@ -458,8 +458,8 @@ def main() -> None:
     multiples = [1.0, 4.0, 16.0] if QUICK else [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
 
     print("=" * 92)
-    print("ADVERSARIAL DRIFT PLACEMENT (A1 worst case) -- ADDITIONAL RSS RESULT")
-    print("NOT a change to the published paper. Package imported READ-ONLY.")
+    print("ADVERSARIAL DRIFT PLACEMENT (A1 worst case)")
+    print("Package imported READ-ONLY.")
     print("=" * 92)
     print(f"grid={rows}x{cols}  delta={delta}  rounds={max_rounds}  seeds={n_seeds}")
     print(f"freshness window W={W}  rho_assumed(A1 bound)={rho_assumed}  "
@@ -512,7 +512,7 @@ def main() -> None:
               f"realized viol-mass {100*a.realized_viol:.0f}%); total bound-breaches="
               f"{total_breaches}; loss<=mass everywhere: {lemma_arm}")
     print()
-    print("READING (honest):")
+    print("READING:")
     print(f"  A1-VIOLATION LEMMA (coverage loss <= realized violation mass) HOLDS at")
     print(f"  EVERY severity, EVERY arm, BOTH rho modes: {lemma_holds_global}.")
     print("  This is the cell's headline guarantee and it is non-vacuous below.")

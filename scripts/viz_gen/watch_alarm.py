@@ -13,9 +13,9 @@ clean violation. Animates, per round:
     monitor exists to surface.
   * RIGHT -- the Shiryaev-Roberts statistic R_t (planner.sr.R) on a log axis.
     It crawls flat under the correct model (median ~1.4) and, within a handful of
-    rounds of the jump, explodes past its alarm threshold (ARL 5000). The
-    crossing is annotated. The monitor is purely observational -- it changes no
-    certificate.
+    rounds of the jump, explodes past its alarm threshold. The crossing is
+    annotated. The monitor is purely observational -- it changes no certificate
+    and does not demonstrate recovery/re-entry.
 
 Reproduce:  PYTHONPATH=src python scripts/viz_gen/watch_alarm.py
 Writes assets/animations/watch_alarm.gif  (seeded; needs no data/).

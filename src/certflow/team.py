@@ -40,6 +40,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from certflow.types import Certificate
+from certflow.upgrades import (
+    JointFleetCalibrator,
+    JointFleetCertificate,
+    congestion_penalty,
+)
 
 
 @dataclass
@@ -91,3 +96,27 @@ def additive_certificate(certs: list[Certificate]) -> TeamCertificate:
     conf = 1.0 - sum(1.0 - c.confidence for c in certs)
     conf = max(0.0, conf)
     return TeamCertificate(lb=lb, ub=ub, confidence=conf, per_agent=list(certs))
+
+
+def joint_fleet_certificate(
+    calibrator: JointFleetCalibrator,
+    predicted_costs: list[float],
+    alpha: float,
+    route_loads: dict | None = None,
+    capacities: dict | None = None,
+    congestion_coefficient: float = 1.0,
+) -> JointFleetCertificate:
+    """Return one joint fleet certificate with an optional load penalty.
+
+    ``calibrator.fit`` must receive independent fleet-episode residual rows,
+    one row per episode and one column per agent.  The load penalty is
+    deterministic and therefore sits outside the learned uncertainty margin.
+    This avoids the invalid assumption that agents are independent when they
+    share congested edges.
+    """
+    penalty = 0.0
+    if route_loads is not None:
+        penalty = congestion_penalty(
+            route_loads, capacities, coefficient=congestion_coefficient
+        )
+    return calibrator.certify(predicted_costs, alpha, congestion_cost=penalty)

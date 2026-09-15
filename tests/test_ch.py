@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from certflow.fastgraph import FastDijkstra
+from certflow.fastgraph import FastDijkstra, FastDijkstraSearch, FlatGraph
 from certflow.ch import ContractionHierarchy, CHPotentialOracle
 from certflow.roadnet import _csr_from_arcs, load_dimacs
 
@@ -120,6 +120,18 @@ def test_ch_self_query_zero():
     ch.build()
     assert ch.query(5, 5) == 0.0
     assert ch.path(5, 5) == [5]
+
+
+def test_fast_dijkstra_search_facade_updates_and_retargets():
+    """The latency backend remains exact after a mutable edge update/start."""
+    graph = {0: {1: 1.0, 2: 5.0}, 1: {2: 1.0}, 2: {}}
+    flat = FlatGraph(graph, extra_nodes=(0, 2))
+    search = FastDijkstraSearch(flat, 0, 2)
+    assert search.shortest_path() == ([0, 1, 2], 2.0)
+    search.update_edges({(0, 1): 10.0})
+    assert search.shortest_path() == ([0, 2], 5.0)
+    search.set_start(1)
+    assert search.shortest_path() == ([1, 2], 1.0)
 
 
 def test_ch_unreachable():

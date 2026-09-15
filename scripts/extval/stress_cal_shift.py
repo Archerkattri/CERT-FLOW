@@ -1,6 +1,4 @@
-"""CERT-FLOW RSS extended validation -- CELL: CALIBRATION -> TEST DISTRIBUTION
-SHIFT (the eps_tv / A2 TV-Lipschitz theorem).  ADDITIONAL results for the RSS
-version; NOT a change to the published paper.
+"""Extended validation: calibration-to-test distribution shift.
 
 What this stresses
 ------------------
@@ -19,8 +17,8 @@ rate rho and/or observation-noise family), and compare eps_tv = 0 vs eps_tv > 0.
 The world (scripts/extval/shift_world.py, package imported READ-ONLY) splices
 two published BoundedDriftWorld segments at t_cp and switches the observation
 noise family/scale there; the planner-visible A1 bound stays the PRE-shift
-bound (rho_true_mode="pre") so the planner is genuinely surprised, exactly like
-a system calibrated under one regime and run in another.  The realised
+bound (rho_true_mode="pre"), matching a system calibrated under one regime and
+run in another.  The realised
 post-shift A1-violation rate against that frozen bound is MEASURED and printed.
 
 What is measured (identical inputs across eps_tv values: same world, same
@@ -45,20 +43,20 @@ pre-shift-dominated) / SETTLED (t in [t_cp+W+settle, ...), buffer refilled).
 
   (3) eps_tv GATING sweep in the transient: valid fraction and mean claim vs
       eps_tv -- the self-extinguishing dial (the certificate refusing to claim
-      on a buffer too stale to honestly support it).
+  on a buffer too stale to support it).
 
-Honesty
--------
+Scope and provenance
+--------------------
 * No package edits.  World subclasses certflow.drift._GridBase / reuses
   BoundedDriftWorld read-only; the planner is the published CertPlanner; the
   oracle is certflow.oracle.opt; the per-edge band and alpha_edge are the
   planner's OWN recorded values (planner._last_alpha_edge, scorer.quantile,
   scorer.delta_stale) -- byte-for-byte what the certificate asserted.
-* All numbers are produced by running real code now and printed.
-* Results that do NOT favour the simple hypothesis are reported in full (see
-  the READING block): the PATH certificate's Bonferroni conservatism keeps
+* All reported metrics are measured by this run.
+* The interpretation reports both supporting and limiting results (see the
+  READING block): the PATH certificate's Bonferroni conservatism keeps
   realised LB<=OPT<=UB coverage ~1.0 even at eps_tv=0, so the eps_tv coverage
-  effect is visible at the conformal (edge) layer and as CLAIM HONESTY, not as
+  effect is visible at the conformal (edge) layer and as a claim-scope change, not as
   a path-coverage rescue.
 
 Run:  cert_env/bin/python scripts/extval/stress_cal_shift.py [--quick]
@@ -67,8 +65,10 @@ Run:  cert_env/bin/python scripts/extval/stress_cal_shift.py [--quick]
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -77,6 +77,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from certflow.cert import CertPlanner, PlannerConfig  # noqa: E402
 from certflow.oracle import opt  # noqa: E402
@@ -98,6 +99,33 @@ SHIFTS = {
                  family_pre="gaussian", scale_pre=0.04,
                  family_post="student_t", scale_post=0.5),
 }
+
+
+def _manifest() -> dict:
+    """Persist enough provenance to distinguish a full stress audit from smoke output."""
+    root = Path(__file__).resolve().parents[2]
+    data_files = []
+    data_root = root / "data"
+    if data_root.exists():
+        for path in sorted(p for p in data_root.rglob("*") if p.is_file()):
+            digest = hashlib.sha256()
+            with path.open("rb") as fh:
+                for block in iter(lambda: fh.read(1024 * 1024), b""):
+                    digest.update(block)
+            data_files.append({"path": str(path.relative_to(root)), "sha256": digest.hexdigest()})
+    try:
+        revision = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        revision = "unknown"
+    return {
+        "schema": "certflow.benchmark-manifest.1",
+        "source_revision": revision,
+        "data_files": data_files,
+        "complete": True,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +300,7 @@ def main() -> None:
 
     print("=" * 92)
     print("CALIBRATION -> TEST DISTRIBUTION SHIFT (eps_tv / A2 TV-Lipschitz theorem)")
-    print("ADDITIONAL RSS RESULT -- NOT a change to the published paper. Package READ-ONLY.")
+    print("EXTENDED VALIDATION. Package READ-ONLY.")
     print("=" * 92)
     print(f"grid={args.grid}x{args.grid}  seeds={args.seeds}  rounds={args.rounds}  "
           f"delta=1.0  alpha'={ap_lvl} (path claim ~{target:.2f})  rho_w=0.99")
@@ -280,7 +308,7 @@ def main() -> None:
           f"settled=[t_cp+{args.window+args.settle:.0f}, ...)  maintenance_every="
           f"{args.maintenance_every}")
     print("planner: sensing='cert', use_aci=False, latent_margin=1, A1 bound FROZEN")
-    print("         at the pre-shift rho (rho_true_mode='pre') -> genuinely surprised.")
+    print("         at the pre-shift rho (rho_true_mode='pre').")
     print("identical inputs across eps_tv: same world/seeds/residual stream; ONLY eps_tv differs.")
     print("EDGE test = held-out fresh obs vs the planner's own band c_hat+-(q+rho*age);")
     print("            this is the layer Barber's exchangeability guarantee is TIGHT on.")
@@ -358,7 +386,7 @@ def main() -> None:
                   f"{(f'{mv:.4f}' if mv == mv else '--'):>16}")
         print()
 
-        # machine-readable
+        # serialized summary
         json_out["shifts"][sh] = {
             "diag": diag,
             "eps_tv": {
@@ -372,27 +400,37 @@ def main() -> None:
         }
 
     print("=" * 92)
-    print("READING (honest -- includes what did NOT favour the simple hypothesis):")
+    print("READING (supporting and limiting results):")
     print("  1. PRE-shift the conformal layer is calibrated: edge miscoverage <= the")
     print("     claimed alpha_edge. Exchangeability holds, eps_tv unneeded.")
     print("  2. In the TRANSIENT right after the changepoint the eps_tv=0 (exchangeable)")
     print("     edge claim is VIOLATED: realised miscoverage jumps to several x alpha_edge")
     print("     while the buffer is still pre-shift-dominated -- the calibration->test")
     print("     shift the cell is about, made visible at the conformal layer.")
-    print("  3. eps_tv>0 is the ONLY mechanism that reacts: delta_stale widens the honest")
+    print("  3. eps_tv>0 is the mechanism that reacts: delta_stale widens the supported")
     print("     claim with buffer age and, once large enough, drives confidence<=0 so the")
     print("     certificate SELF-EXTINGUISHES (valid_frac->0) instead of overclaiming")
     print("     through the shift -- the paper's 'A2 misspec self-extinguishes loudly'")
     print("     finding, now under a genuine changepoint.")
-    print("  4. DID NOT favour the simple hypothesis: the PATH certificate's Bonferroni")
+    print("  4. The PATH certificate's Bonferroni")
     print("     conservatism keeps realised LB<=OPT<=UB coverage ~1.0 even at eps_tv=0,")
     print("     so eps_tv does not 'rescue' a path-coverage number here -- its effect is")
-    print("     edge-layer coverage + CLAIM HONESTY. And an ABRUPT step is the adversarial")
+    print("     edge-layer coverage + claim scope. An ABRUPT step is the adversarial")
     print("     case for a bounded-RATE TV model: the transient spike can exceed even the")
     print("     eps_tv-corrected bound, which only a steady-rate shift fully absorbs.")
     print(f"\n[ran {len(shifts)} shift(s) x {len(eps_grid)} eps_tv x {args.seeds} seeds "
           f"x {args.rounds} rounds in {time.time()-t_start:.1f}s]")
-    print("\nMEASURED_JSON " + json.dumps(json_out))
+    out_path = Path("results/v4_validity/shift_stress-quick.json" if args.quick
+                    else "results/v4_validity/shift_stress-full.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    json_out["schema"] = "certflow.shift-stress.1"
+    json_out["quick"] = args.quick
+    json_out["seeds"] = args.seeds
+    json_out["rounds"] = args.rounds
+    json_out["manifest"] = _manifest()
+    out_path.write_text(json.dumps(json_out, indent=2) + "\n", encoding="utf-8")
+    print(f"\nWROTE_JSON {out_path}")
+    print("MEASURED_JSON " + json.dumps(json_out))
 
 
 if __name__ == "__main__":

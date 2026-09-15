@@ -1,16 +1,15 @@
-"""Certified-loop scaling curve (RSS-version EXTENDED VALIDATION).
+"""Certified-loop scaling curve (extended validation).
 
-ADDITIONAL results for the RSS version of the CERT-FLOW paper. NOT a change to
-the published paper. Nothing here modifies src/certflow -- the published package
+Extended validation. Nothing here modifies src/certflow -- the package
 is imported READ-ONLY (certflow.cert, certflow.drift, certflow.oracle).
 
 ------------------------------------------------------------------------------
 CELL: Certified-loop scaling curve
 ------------------------------------------------------------------------------
-An honest scaling curve for the FULL certified loop (conformal + dual D* Lite +
+Scaling curve for the FULL certified loop (conformal + dual D* Lite +
 pre-widening + sensing) on synthetic bounded-drift grids of increasing size
 (20x20 .. 100x100). Two things are measured, both produced by running real code
-now (never hardcoded), and both reported even where they do NOT favor CERT:
+now (never hardcoded), including cases where the results are unfavorable:
 
   (A) Per-round steady-state latency p50/p95 vs |E| (and path length L). This
       is the recurring cost of one planner.round() once the numba kernel is
@@ -382,7 +381,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="CERT certified-loop scaling curve")
     ap.add_argument("--quick", action="store_true", help="smoke: 2 sizes, 1 seed")
     ap.add_argument("--json", type=str, default=None,
-                    help="write machine-readable results to this path")
+                    help="write serialized results to this path")
     args = ap.parse_args()
 
     sizes = SIZES_QUICK if args.quick else SIZES_FULL
@@ -390,7 +389,7 @@ def main() -> None:
     warm_horizon = WARMUP_HORIZON_QUICK if args.quick else WARMUP_HORIZON_FULL
     n_lat = 40 if args.quick else N_LATENCY_ROUNDS
 
-    print(f"[scaling] EXTENDED VALIDATION (RSS additional result) "
+    print(f"[scaling] EXTENDED VALIDATION "
           f"mode={'quick' if args.quick else 'full'}")
     print(f"[scaling] sizes={[f'{r}x{c}' for r, c in sizes]} seeds={seeds}")
     print(f"[scaling] bounded drift rho={RHO} noise_scale={NOISE_SCALE} "
@@ -467,7 +466,7 @@ def main() -> None:
         Path(args.json).parent.mkdir(parents=True, exist_ok=True)
         with open(args.json, "w") as fh:
             json.dump(payload, fh, indent=2)
-        print(f"\n[scaling] machine-readable results -> {args.json}")
+        print(f"\n[scaling] serialized results -> {args.json}")
 
 
 if __name__ == "__main__":

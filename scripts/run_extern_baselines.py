@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,6 +39,16 @@ SEEDS_A = 4 if QUICK else 15
 ROUNDS_A = 100 if QUICK else 300
 SEEDS_B = 4 if QUICK else 15
 W_LIST = (1.2, 1.5, 2.0)
+
+
+def _revision() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return "unknown"
 
 
 def part_a_world(kind: str, seed: int):
@@ -102,13 +113,22 @@ def part_b() -> list[dict]:
         epsilon=8.0, alpha_prime=0.2, rho_w=0.99, eps_tv=1e-4, gamma_aci=0.01,
         use_kappa=True, initial_survey=False,
         move_policy="when_certified", sense_budget=20.0,
-        n_seeds=SEEDS_B, max_rounds=200 if QUICK else 600, base_seed=2026,
+        # 200 rounds stopped just before the 10x10 missions completed, which
+        # made the decision-quality table look empty.  The quick cap remains
+        # short but now measures completed missions.
+        n_seeds=SEEDS_B, max_rounds=300 if QUICK else 600, base_seed=2026,
     )
     rows = []
     variants = [
         ("cert", dict(sensing_policy="cert")),
         ("voi", dict(sensing_policy="voi")),
-        ("hybrid", dict(sensing_policy="cert", hybrid_sensing=True)),
+        # Route-utility refinement remains certificate-gated: after a valid
+        # certificate, spend remaining budget on the point-estimate route
+        # rather than stopping at a merely valid but stale incumbent.
+        ("hybrid", dict(sensing_policy="cert", hybrid_sensing=True,
+                         refine_after_certify=True)),
+        ("max_age", dict(sensing_policy="max_age")),
+        ("max_width", dict(sensing_policy="max_width")),
     ]
     for policy, over in variants:
         cfg = dataclasses.replace(base, **over)
@@ -137,7 +157,20 @@ def part_c() -> dict:
 
 
 def main() -> None:
-    out = {"part_a": [], "part_b": None, "part_c": None}
+    out = {
+        "schema": "certflow.external-baselines.2",
+        "quick": QUICK,
+        "seeds_a": SEEDS_A,
+        "seeds_b": SEEDS_B,
+        "rounds_a": ROUNDS_A,
+        "rounds_b": 300 if QUICK else 600,
+        "manifest": {
+            "schema": "certflow.external-baselines-manifest.1",
+            "revision": _revision(),
+            "complete": True,
+        },
+        "part_a": [], "part_b": None, "part_c": None,
+    }
     for kind in ("synthetic", "metr-la"):
         out["part_a"].extend(part_a(kind))
         print(f"done: part A {kind}", flush=True)

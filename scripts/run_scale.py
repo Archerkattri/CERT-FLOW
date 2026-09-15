@@ -28,7 +28,6 @@ import argparse
 import json
 import math
 import os
-import resource
 import sys
 import time
 from dataclasses import dataclass, field
@@ -36,6 +35,16 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+try:  # ``resource`` is POSIX-only; the benchmark also runs on Windows.
+    import resource as _resource
+except ImportError:  # pragma: no cover - exercised on Windows CI/workstations
+    _resource = None
+
+try:
+    import psutil as _psutil
+except ImportError:  # optional dependency; RSS is reported as zero if absent
+    _psutil = None
 
 _repo = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo / "src"))
@@ -103,8 +112,14 @@ CONFIGS: dict[str, PlannerConfig] = {
 # ---------------------------------------------------------------------------
 
 def _rss_kb() -> int:
-    """Peak RSS in KiB via getrusage (Linux: ru_maxrss in kB)."""
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    """Return process RSS in KiB on POSIX and Windows."""
+    if _resource is not None:
+        # macOS reports bytes; Linux reports KiB.
+        value = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+        return int(value / 1024) if sys.platform == "darwin" else int(value)
+    if _psutil is not None:
+        return int(_psutil.Process(os.getpid()).memory_info().rss / 1024)
+    return 0
 
 
 @dataclass
