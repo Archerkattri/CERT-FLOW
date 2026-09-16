@@ -521,7 +521,9 @@ class CertPlanner:
             betting_epsilons=config.recovery_betting_epsilons,
         )
         self._selection_audit_scores: list[float] = []
+        self._selection_audit_observation_ids: set[str] = set()
         self._selection_audit_key: tuple[Node, ...] | None = None
+        self._selection_audit_decision_id: int | None = None
         self._last_selection_event = None
         # Automatic evidence calibration uses a chronological train/calibration
         # split.  It never prices with a model fitted on the same residuals
@@ -1333,6 +1335,8 @@ class CertPlanner:
             v3_active_sensing=self.active_sensing.stats(),
             v3_selection_events=len(self.selection_ledger.events),
             v3_selection_digest=self.selection_ledger.digest,
+            v3_selection_decision_id=self._selection_audit_decision_id,
+            v3_selection_audit_count=len(self._selection_audit_scores),
             v3_evidence_model_ready=self.evidence_calibrator.ready,
             v3_evidence_auto_train=len(self._evidence_train_residuals),
             v3_evidence_auto_calibration=len(self._evidence_cal_residuals),
@@ -1514,9 +1518,15 @@ class CertPlanner:
                 candidates=candidate_keys,
                 context=(float(L), float(self.scorer.effective_mass(self.t))),
             )
-            if self._selection_audit_key != selected_key:
-                self._selection_audit_scores = []
-                self._selection_audit_key = selected_key
+            # Every adaptive comparison is a new selection event, even when
+            # the same route wins again. Evidence collected after an earlier
+            # decision is not automatically independent of this later one.
+            # Reset unconditionally so a repeated winner cannot silently
+            # recycle its post-selection audit stream.
+            self._selection_audit_scores = []
+            self._selection_audit_observation_ids = set()
+            self._selection_audit_key = selected_key
+            self._selection_audit_decision_id = self._last_selection_event.decision_id
 
         # Churn set (T7): edges recently on the optimistic path; the floor
         # and the sensing rotation must cover this set, not just today's path
@@ -1922,21 +1932,37 @@ class CertPlanner:
             drift_margin=drift,
         )
 
-    def record_selection_audit(self, residual: float, path: list[Node] | None = None) -> None:
+    def record_selection_audit(
+        self,
+        residual: float,
+        path: list[Node] | None = None,
+        *,
+        decision_id: int,
+        observation_id: str,
+    ) -> None:
         """Append one independently collected residual for the selected path.
 
         This method is the bridge for a real post-selection audit sensor.  It
-        intentionally rejects audits for a different selected path so callers
-        cannot accidentally combine evidence across selection events.
+        requires the exact selection decision and a unique observation ID. It
+        rejects stale decisions, duplicate observations and different paths,
+        preventing accidental reuse across adaptive route comparisons.
         """
         p = path if path is not None else self._prev_incumbent
         key = tuple(p) if p else None
         if key is None or self._selection_audit_key != key:
             raise ValueError("audit path does not match the current selected path")
+        if self._selection_audit_decision_id != int(decision_id):
+            raise ValueError("audit decision_id is stale or does not match current selection")
+        identity = str(observation_id).strip()
+        if not identity:
+            raise ValueError("observation_id must be non-empty")
+        if identity in self._selection_audit_observation_ids:
+            raise ValueError("observation_id has already been used for this selection")
         value = float(residual)
         if not math.isfinite(value):
             raise ValueError("residual must be finite")
         self._selection_audit_scores.append(abs(value))
+        self._selection_audit_observation_ids.add(identity)
 
     def _auto_evidence_update(self, edge: Edge, age: float, residual: float) -> None:
         """Collect a disjoint chronological split for the evidence model.

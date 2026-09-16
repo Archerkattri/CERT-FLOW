@@ -1,0 +1,122 @@
+{
+  "frozen_on": "2026-09-15",
+  "movingai": [
+    {
+      "map": "data/movingai/dao/arena.map",
+      "map_sha256": "9887c3022fb76d8e2b49db4a54641e31df79607cf96c2a0ec362702808113d4d",
+      "metric_status": "AVAILABLE",
+      "role": "development",
+      "scenario": "data/movingai/dao/arena.map.scen",
+      "scenario_sha256": "c593f662a6964a657aef6a004cced3bf144b9aa4f61a15ce8c5f1c6269a79875"
+    },
+    {
+      "map": "data/movingai/Berlin_2_512.map",
+      "map_sha256": "8e5efbc4e86ecf160c6bd35356becf5e6bdf6082efcd864bb7db00eca4421804",
+      "metric_status": "AVAILABLE",
+      "role": "validation",
+      "scenario": "data/movingai/Berlin_2_512.map.scen",
+      "scenario_sha256": "7251e04641825eea8c7e7b7c2e789499c00e1d119ead40733957508d42bfd120"
+    },
+    {
+      "map": "data/movingai/Boston_2_1024.map",
+      "map_sha256": "0252da3b62eeefe234b955b1cd92d397a5e1f2b5dc30ad2914e387b0b1757127",
+      "metric_status": "LOCKED_UNRUN",
+      "role": "locked_test",
+      "scenario": "data/movingai/Boston_2_1024.map.scen",
+      "scenario_sha256": "e07ea7d3baa4df237fc7cd8b8347dadc954ed345ed0ee905c2b89a3f163c84a8"
+    }
+  ],
+  "outcome_blind": true,
+  "release_gate": {
+    "locked_endpoint_metrics_present": false,
+    "requires_all_failures_and_abstentions": true,
+    "requires_clean_source_tree": true,
+    "requires_manifest_hash_in_report": true
+  },
+  "schema": "certflow.independent-day-map.v1",
+  "selection_rule": {
+    "movingai_scenarios": "first 100 valid scenario rows in file order",
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "traffic_endpoints": "lexicographically first reachable pair with at least six hops"
+  },
+  "traffic": [
+    {
+      "dataset": "metr-la",
+      "path": "data/metr-la/metr_la.h5",
+      "recording_start": "2012-03-01T00:00:00",
+      "recording_stop_exclusive": "2012-06-28T00:00:00",
+      "sha256": "e00a068ca5ec0abcf225b5a044bf962cc1c32c4fef31bad8187c04f342ef0990",
+      "shape": [
+        34272,
+        207
+      ],
+      "windows": {
+        "development": {
+          "bins": 26208,
+          "metric_status": "AVAILABLE",
+          "start_inclusive": "2012-03-01T00:00:00",
+          "stop_exclusive": "2012-05-31T00:00:00"
+        },
+        "locked_test": {
+          "bins": 4032,
+          "metric_status": "LOCKED_UNRUN",
+          "start_inclusive": "2012-06-14T00:00:00",
+          "stop_exclusive": "2012-06-28T00:00:00"
+        },
+        "validation": {
+          "bins": 4032,
+          "metric_status": "AVAILABLE",
+          "start_inclusive": "2012-05-31T00:00:00",
+          "stop_exclusive": "2012-06-14T00:00:00"
+        }
+      }
+    },
+    {
+      "dataset": "pems-bay",
+      "path": "data/pems-bay/pems_bay.h5",
+      "recording_start": "2017-01-01T00:00:00",
+      "recording_stop_exclusive": "2017-07-01T00:00:00",
+      "sha256": "ea11b805760d136ed4905916b764dd8ca4f33034121d5d57d2e88b9012af24b8",
+      "shape": [
+        52128,
+        325
+      ],
+      "windows": {
+        "development": {
+          "bins": 34560,
+          "metric_status": "AVAILABLE",
+          "start_inclusive": "2017-01-01T00:00:00",
+          "stop_exclusive": "2017-05-01T00:00:00"
+        },
+        "locked_test": {
+          "bins": 8640,
+          "metric_status": "LOCKED_UNRUN",
+          "start_inclusive": "2017-06-01T00:00:00",
+          "stop_exclusive": "2017-07-01T00:00:00"
+        },
+        "validation": {
+          "bins": 8928,
+          "metric_status": "AVAILABLE",
+          "start_inclusive": "2017-05-01T00:00:00",
+          "stop_exclusive": "2017-06-01T00:00:00"
+        }
+      }
+    }
+  ],
+  "use_policy": {
+    "development": "method and hyperparameter changes allowed",
+    "locked_test": "single final evaluation after code/config hash freeze; no retuning",
+    "validation": "one configuration selection after development"
+  }
+}

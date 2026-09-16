@@ -12,16 +12,16 @@ from certflow import (
     JointFleetCalibrator,
     MixtureShiryaevRobertsDetector,
     RegimeRecoveryManager,
+    RiskLedger,
+    RouteWitness,
     SelectionConditionalCalibrator,
     SelectionLedger,
-    SequentialRecoveryMonitor,
     SensingAction,
+    SensingCandidate,
+    SequentialRecoveryMonitor,
     TrajectoryConformalCalibrator,
     congestion_penalty,
     reachable_tube,
-    RiskLedger,
-    RouteWitness,
-    SensingCandidate,
     select_witness_observations,
 )
 from certflow.cert import CertPlanner, PlannerConfig
@@ -277,6 +277,82 @@ def test_planner_v3_hooks_are_live_but_opt_in():
     diag = planner.diagnostics()
     assert "v3_regime" in diag
     assert "v3_selection_digest" in diag
+
+
+def test_runtime_selection_audit_rejects_reuse_and_stale_decisions():
+    world = grid_world(3, 3, seed=22, kind="static", noise_scale=0.0)
+    planner = CertPlanner(
+        world,
+        (0, 0),
+        (2, 2),
+        PlannerConfig(
+            epsilon=3.0,
+            alpha_prime=0.2,
+            selection_conditional=True,
+            selection_audit_min=2,
+            active_sensing=True,
+        ),
+    )
+    for _ in range(30):
+        planner.round()
+
+    event = planner._last_selection_event
+    assert event is not None
+    path = list(event.selected)
+    planner.record_selection_audit(
+        0.1, path, decision_id=event.decision_id, observation_id="audit-0"
+    )
+    planner.record_selection_audit(
+        0.2, path, decision_id=event.decision_id, observation_id="audit-1"
+    )
+    assert planner.selection_certificate(path, alpha=0.5).valid
+    with pytest.raises(ValueError, match="already been used"):
+        planner.record_selection_audit(
+            0.2, path, decision_id=event.decision_id, observation_id="audit-1"
+        )
+
+    # Re-running the adaptive comparison is a new selection even when the
+    # same route remains the winner. The previous audit support must vanish.
+    planner.round()
+    next_event = planner._last_selection_event
+    assert next_event is not None and next_event.decision_id > event.decision_id
+    assert planner.diagnostics()["v3_selection_audit_count"] == 0
+    assert not planner.selection_certificate(alpha=0.5).valid
+    with pytest.raises(ValueError, match="stale"):
+        planner.record_selection_audit(
+            0.3,
+            list(next_event.selected),
+            decision_id=event.decision_id,
+            observation_id="audit-2",
+        )
+
+
+def test_runtime_selection_audit_rejects_wrong_path_and_missing_identity():
+    world = grid_world(3, 3, seed=23, kind="static", noise_scale=0.0)
+    planner = CertPlanner(
+        world,
+        (0, 0),
+        (2, 2),
+        PlannerConfig(epsilon=3.0, selection_conditional=True),
+    )
+    for _ in range(20):
+        planner.round()
+    event = planner._last_selection_event
+    assert event is not None
+    with pytest.raises(ValueError, match="does not match"):
+        planner.record_selection_audit(
+            0.1,
+            [(0, 0), (2, 2)],
+            decision_id=event.decision_id,
+            observation_id="wrong-path",
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        planner.record_selection_audit(
+            0.1,
+            list(event.selected),
+            decision_id=event.decision_id,
+            observation_id=" ",
+        )
 
 
 def test_planner_can_price_with_learned_evidence_and_emit_route_tube():

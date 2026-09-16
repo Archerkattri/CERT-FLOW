@@ -387,6 +387,11 @@ covariates. Group certificates require a declared finite family, enough
 support, and independent group calibration. Selection certificates require an
 independent or post-selection audit stream. Learned evidence scores improve
 pricing but do not turn an arbitrary feature model into a conditional theorem.
+The exact supported statement, random objects, filtration, runtime trace and
+open proof obligations are recorded in the
+[mathematical review note](docs/research/certflow-proof-boundary.md). The
+[independent day/map manifest](results/protocols/independent-day-map-v1.json)
+is frozen with its final endpoints marked `LOCKED_UNRUN`.
 
 The additive fleet certificate is the robust fleet composition. A tighter
 joint congestion construction is retained only as a falsified comparison on
@@ -420,6 +425,8 @@ MIT. See [LICENSE](LICENSE).
 
 The current checkout includes the repaired cache/configuration, malformed-input,
 provenance, runner-safety and certification paths, plus the witness/risk-ledger
-research seam. The strict promotion gate and full regression suite pass (324
-tests). Sequential-proof, independent review and locked deployment-day/map
-evaluation remain research gates; no conditional-coverage theorem is claimed.
+research seam. The strict promotion gate and full regression suite pass. The
+mathematical review narrows the supported theorem and hardens post-selection
+audit provenance. Independent proof review and locked deployment-day/map
+execution remain research gates; no universal or always-valid conditional-
+coverage theorem is claimed.
