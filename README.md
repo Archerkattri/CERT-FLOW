@@ -22,7 +22,7 @@ supports the route is still valid.
   <a href="https://github.com/Archerkattri/CERT-FLOW/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Archerkattri/CERT-FLOW/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-56B4E9">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1a7f37">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-320%20passing-009E73">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-297%20passing-009E73">
   <img alt="Release gates" src="https://img.shields.io/badge/release%20gates-76%2F76-009E73">
 </p>
 
@@ -198,7 +198,7 @@ The release checker refuses quick artifacts as release evidence.
 
 | Area | Current result |
 |---|---|
-| Full regression | 320 tests passed; one existing NumPy warning in the NaN/Inf serialization test. |
+| Full regression | 297 tests passed, 32 skipped (DIMACS/MovingAI/METR-LA benchmark data not downloaded); one existing NumPy warning in the NaN/Inf serialization test. |
 | Release audit | 76/76 strict gates passed. |
 | Abrupt calibration shift | Formal SR post-shift edge coverage `0.954`, compared with ACI `0.937`; median detection `23` rounds, recovery `5`, valid re-entry `5`. |
 | Formal recovery safety | Zero pre-shift false alarms in the full matched audit. |
@@ -373,7 +373,7 @@ assets/
 
 docs/research/
   competitive-program.md  research evidence and comparisons
-  roadmap.md              research roadmap and dispositions
+  certflow-v4-roadmap.md  research roadmap and dispositions
 ```
 
 The repository describes one current CERT-FLOW system. Audit artifacts retain
