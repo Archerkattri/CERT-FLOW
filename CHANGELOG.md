@@ -4,14 +4,14 @@ All notable changes to CERT-FLOW are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.0] - 2026-09-17
 
 - Added exact search-backend selection for large structured grids: the
   recommended `auto` profile uses fresh numba flat-Dijkstra queries when they
   beat D* Lite queue repair, while generic graphs retain incremental D* Lite.
   Warm-up calibration now uses deterministic round-robin repeats, avoiding
   repeated full-graph age scans during multi-edge bursts. Full 3-seed scale
-  p95 at 60x60 is 22.28 ms with 85.3% validity.
+  p95 at 60x60 is 33.0 ms with 86.2% validity (quiet-box re-run).
 - Added composition-safe CIA upper-bound pricing (`cia_ub=True`) with an
   explicit LB/UB alpha split and the selected-path freshness gate.
 - Added experimental age-conditioned edge pricing (`age_stratify=True`) with
@@ -23,6 +23,12 @@ All notable changes to CERT-FLOW are documented here. The format follows
   and regime-aware calibration recovery. `CertPlanner` exposes hooks for all
   seven through its config flags and helper methods; legacy defaults are
   unchanged.
+- Pinned the `realworld` extra to `pandas<3`: pandas 3 cannot read the legacy
+  DCRNN HDF5 stores (METR-LA 34272x207 + PEMS-BAY 52116x325 verified on
+  pandas 2.x, sensor-id overlap 207/207 and 325/325).
+- Full suite green on real data: 337 passed, 0 skipped (NY road graph,
+  MovingAI maps/scenarios, METR-LA, PEMS-BAY all downloaded and
+  loader-verified; strict release gate re-run from fresh artifacts).
 
 ## [1.1.0] - 2026-07-02
 

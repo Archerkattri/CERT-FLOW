@@ -134,7 +134,7 @@ def render_dashboard() -> Path:
          "fresh re-entry median"),
         (f"{realworld_lcb:.3f}" if np.isfinite(realworld_lcb) else "n/a",
          "minimum real-world selection LCB"),
-        ("source-bound", "values read from persisted artifacts"),
+        ("bound", "values read from persisted artifacts"),
     ]
     ax.text(0.02, 0.96, "Release evidence", fontsize=14, fontweight="bold",
             va="top", color="#ffffff")
