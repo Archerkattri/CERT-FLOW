@@ -23,7 +23,7 @@ supports the route is still valid.
   <a href="https://doi.org/10.5281/zenodo.22836550"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.22836550.svg"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-56B4E9">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1a7f37">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-337%20passing-009E73">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-230%20passing-009E73">
   <img alt="Release gates" src="https://img.shields.io/badge/release%20gates-83%2F83-009E73">
 </p>
 
