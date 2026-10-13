@@ -120,3 +120,31 @@ The supported statement is:
 
 Independent proof review and execution of the locked day/map endpoint remain
 release gates.
+
+## 2026-10-13 adversarial seam correction
+
+Internally recorded scores are now usable only for their selected route. A
+manually supplied alternative route requires an explicit separate audit stream
+and receives `no-ledger` when no matching planner selection exists. Nonfinite
+residuals are rejected rather than removed from the declared audit sample;
+selection based on residual finiteness is not justified by exchangeability.
+The point and drift allowance must also be finite.
+
+`tests/test_proof_seam.py` reproduces both former failure modes. This correction
+does not enforce independent collection, a fixed sample size or a fixed center:
+the caller must freeze the prediction/scoring rule, route, audit sample size
+and alpha before seeing audit outcomes. Recomputing scores around one center
+and applying the quantile to another center is outside the stated theorem.
+Increasing the sample size until the radius is convenient remains optional
+stopping and is not justified by a finite-sample rank argument.
+
+For a restricted probabilistic witness, a sufficient assumption is one frozen
+finite search graph with a simultaneous event `ell_e <= C_e <= u_e` on all its
+edges. If each edge-bound failure has marginal probability at most `alpha_e`
+and the fixed allocations sum to at most `alpha`, the union bound gives the
+simultaneous event with probability at least `1-alpha`, without requiring
+independence between edges. On that event the deterministic proof above holds
+even when the incumbent is selected adaptively from those bounds. Repeated
+rounds additionally require fixed allocations over rounds or a separately
+proved sequential construction. The default runtime's path-local spending
+does not establish this all-edge event; the ledger remains an audit record.
