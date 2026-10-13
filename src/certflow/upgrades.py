@@ -130,9 +130,13 @@ class SelectionConditionalCalibrator:
         ledger: SelectionLedger | None = None,
         drift_margin: float = 0.0,
     ) -> SelectionConditionalCertificate:
-        if drift_margin < 0.0:
-            raise ValueError("drift_margin must be >= 0")
-        finite = [abs(float(x)) for x in audit_residuals if math.isfinite(float(x))]
+        if not math.isfinite(float(point)):
+            raise ValueError("point must be finite")
+        if not math.isfinite(float(drift_margin)) or drift_margin < 0.0:
+            raise ValueError("drift_margin must be finite and >= 0")
+        finite = [abs(float(x)) for x in audit_residuals]
+        if not all(math.isfinite(x) for x in finite):
+            raise ValueError("audit residuals must be finite; refusing to shrink the audit sample")
         q = _finite_sample_quantile(finite, alpha)
         conf = max(0.0, 1.0 - alpha) if len(finite) >= self.min_audit and math.isfinite(q) else 0.0
         radius = q + drift_margin if math.isfinite(q) else math.inf

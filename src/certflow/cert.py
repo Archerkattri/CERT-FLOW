@@ -1911,6 +1911,8 @@ class CertPlanner:
             return None
         selected = tuple(p)
         event = self._last_selection_event
+        if audit_residuals is None and selected != self._selection_audit_key:
+            raise ValueError("audit path does not match the current selected path")
         if event is None or event.selected != selected:
             # A caller can certify a manually supplied selected path, but the
             # returned digest explicitly records that no planner event exists.
