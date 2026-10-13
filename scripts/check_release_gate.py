@@ -23,6 +23,10 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+from provenance import source_manifest
+
 TARGET_COVERAGE_LCB = 0.80
 FULL_SEEDS = 10
 
@@ -143,8 +147,10 @@ def main() -> int:
     fleet_sensing = load("results/v4_validity/fleet-sensing-full.json")
     extern = load("results/extern_baselines/table.json")
 
-    # A revision/complete flag alone cannot bind a persisted result to a dirty
-    # checkout.  These are the artifacts used for promotion-facing claims.
+    # A persisted manifest is useful only if its source content is the code
+    # currently being promoted. A nonempty digest by itself merely identifies
+    # an old run; it does not establish freshness.
+    current_source = source_manifest(ROOT)
     for artifact_name, artifact in (
         ("p95 scorecard", p95),
         ("p75 scorecard", p75),
@@ -164,6 +170,23 @@ def main() -> int:
                 f"files={manifest.get('source_file_count')}"
                 if manifest is not None
                 else "missing source_digest/source_file_count"
+            ),
+        )
+        matches_current = (
+            manifest is not None
+            and manifest.get("source_digest") == current_source["source_digest"]
+            and manifest.get("source_file_count") == current_source["source_file_count"]
+        )
+        check(
+            checks,
+            f"{artifact_name}: source matches current checkout",
+            matches_current,
+            (
+                f"artifact={manifest.get('source_digest', '')[:12]}"
+                f"/{manifest.get('source_file_count')}, current="
+                f"{current_source['source_digest'][:12]}/{current_source['source_file_count']}"
+                if manifest is not None
+                else "missing source manifest"
             ),
         )
 
